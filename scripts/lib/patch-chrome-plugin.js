@@ -71,6 +71,7 @@ if (!pluginDir) {
 const scriptsDir = path.resolve(pluginDir, "scripts");
 
 const linuxExtensionAwareUserDataFallback = `  const linuxChromeUserDataDirectory = path.join(os.homedir(), ".config", "google-chrome");
+  const linuxChromiumUserDataDirectory = path.join(os.homedir(), ".config", "chromium");
   const linuxBraveUserDataDirectory = path.join(
     os.homedir(),
     ".config",
@@ -80,6 +81,7 @@ const linuxExtensionAwareUserDataFallback = `  const linuxChromeUserDataDirector
   const linuxUserDataCandidates = [
     linuxBraveUserDataDirectory,
     linuxChromeUserDataDirectory,
+    linuxChromiumUserDataDirectory,
   ].filter((candidate) => fs.existsSync(candidate));
   const linuxCandidateWithInstalledExtension = linuxUserDataCandidates.find(
     (candidate) => {
@@ -108,6 +110,7 @@ const linuxExtensionAwareUserDataFallback = `  const linuxChromeUserDataDirector
   return linuxChromeUserDataDirectory;`;
 
 const linuxDefaultBrowserUserDataFallback = `  const linuxChromeUserDataDirectory = path.join(os.homedir(), ".config", "google-chrome");
+  const linuxChromiumUserDataDirectory = path.join(os.homedir(), ".config", "chromium");
   const linuxBraveUserDataDirectory = path.join(
     os.homedir(),
     ".config",
@@ -121,9 +124,16 @@ const linuxDefaultBrowserUserDataFallback = `  const linuxChromeUserDataDirector
   ) {
     return linuxBraveUserDataDirectory;
   }
+  if (
+    ["chromium.desktop", "chromium-browser.desktop"].includes(defaultBrowser) &&
+    fs.existsSync(linuxChromiumUserDataDirectory)
+  ) {
+    return linuxChromiumUserDataDirectory;
+  }
 
   if (fs.existsSync(linuxBraveUserDataDirectory)) return linuxBraveUserDataDirectory;
   if (fs.existsSync(linuxChromeUserDataDirectory)) return linuxChromeUserDataDirectory;
+  if (fs.existsSync(linuxChromiumUserDataDirectory)) return linuxChromiumUserDataDirectory;
 
   return linuxChromeUserDataDirectory;`;
 
@@ -144,6 +154,13 @@ const linuxNativeHostManifestFallback = `  if (process.platform === "linux") {
         "NativeMessagingHosts",
         \`\${expectedHostName}.json\`,
       ),
+      path.join(
+        os.homedir(),
+        ".config",
+        "chromium",
+        "NativeMessagingHosts",
+        \`\${expectedHostName}.json\`,
+      ),
     ];
 
     return {
@@ -156,14 +173,15 @@ const linuxNativeHostManifestFallback = `  if (process.platform === "linux") {
     };
   }`;
 
-patchFile(path.join(scriptsDir, "installManifest.mjs"), [
-  {
-    label: "Linux Brave native host manifest location",
-    oldText: 'linux:[".config/google-chrome/NativeMessagingHosts"]',
-    newText:
-      'linux:[".config/google-chrome/NativeMessagingHosts",".config/BraveSoftware/Brave-Browser/NativeMessagingHosts"]',
-  },
-]);
+patchFileFirstMatch(path.join(scriptsDir, "installManifest.mjs"), {
+  label: "Linux browser native host manifest locations",
+  oldTexts: [
+    'linux:[".config/google-chrome/NativeMessagingHosts"]',
+    'linux:[".config/google-chrome/NativeMessagingHosts",".config/BraveSoftware/Brave-Browser/NativeMessagingHosts"]',
+  ],
+  newText:
+    'linux:[".config/google-chrome/NativeMessagingHosts",".config/BraveSoftware/Brave-Browser/NativeMessagingHosts",".config/chromium/NativeMessagingHosts"]',
+});
 
 patchFile(path.join(scriptsDir, "check-native-host-manifest.js"), [
   {
@@ -200,10 +218,10 @@ ${linuxNativeHostManifestFallback}
   throw new Error(
     \`Unsupported platform for native host manifest check: \${process.platform}. This script supports macOS, Linux, and Windows.\`,
   );`,
-    alreadyText: 'BraveSoftware",\n        "Brave-Browser",\n        "NativeMessagingHosts"',
+    alreadyText: '"chromium",\n        "NativeMessagingHosts"',
   },
   {
-    label: "Linux Brave native host manifest fallback",
+    label: "Linux browser native host manifest fallback",
     oldText: `  if (process.platform === "linux") {
     return {
       manifestPath: path.join(
@@ -219,7 +237,7 @@ ${linuxNativeHostManifestFallback}
     };
   }`,
     newText: linuxNativeHostManifestFallback,
-    alreadyText: 'BraveSoftware",\n        "Brave-Browser",\n        "NativeMessagingHosts"',
+    alreadyText: '"chromium",\n        "NativeMessagingHosts"',
   },
 ]);
 
@@ -235,7 +253,7 @@ patchFile(path.join(scriptsDir, "browser-client.mjs"), [
 
 patchFile(path.join(scriptsDir, "installed-browsers.js"), [
   {
-    label: "Linux Brave browser inventory",
+    label: "Linux browser inventory",
     oldText: `const KNOWN_BROWSERS = [
   {
     name: "Google Chrome",
@@ -260,27 +278,34 @@ patchFile(path.join(scriptsDir, "installed-browsers.js"), [
     commands: ["brave-browser", "brave"],
     windowsExecutable: "brave.exe",
   },
+  {
+    name: "Chromium",
+    bundleIds: ["org.chromium.Chromium"],
+    appNames: ["Chromium.app"],
+    commands: ["chromium", "chromium-browser"],
+    windowsExecutable: "chrome.exe",
+  },
 ];`,
   },
 ]);
 
 patchFile(path.join(scriptsDir, "chrome-is-running.js"), [
   {
-    label: "Linux Brave running-process detection",
+    label: "Linux browser running-process detection",
     oldText: `const CHROME_PROCESS_NAMES_BY_PLATFORM = {
   darwin: new Set(["Google Chrome", "Google Chrome Helper"]),
   win32: new Set(["chrome.exe"]),
 };`,
     newText: `const CHROME_PROCESS_NAMES_BY_PLATFORM = {
   darwin: new Set(["Google Chrome", "Google Chrome Helper"]),
-  linux: new Set(["chrome", "google-chrome", "brave", "brave-browser"]),
+  linux: new Set(["chrome", "google-chrome", "brave", "brave-browser", "chromium", "chromium-browser"]),
   win32: new Set(["chrome.exe"]),
 };`,
   },
 ]);
 
 patchFileFirstMatch(path.join(scriptsDir, "check-extension-installed.js"), {
-  label: "Linux extension-aware Chrome/Brave profile fallback",
+  label: "Linux extension-aware browser profile fallback",
   oldTexts: [
     `  return path.join(os.homedir(), ".config", "google-chrome");`,
     `  const linuxChromeUserDataDirectory = path.join(os.homedir(), ".config", "google-chrome");
@@ -297,11 +322,11 @@ patchFileFirstMatch(path.join(scriptsDir, "check-extension-installed.js"), {
   return linuxChromeUserDataDirectory;`,
   ],
   newText: linuxExtensionAwareUserDataFallback,
-  alreadyText: "linuxCandidateWithInstalledExtension",
+  alreadyText: "linuxChromiumUserDataDirectory",
 });
 
 patchFileFirstMatch(path.join(scriptsDir, "open-chrome-window.js"), {
-  label: "Linux default-browser Chrome/Brave profile fallback",
+  label: "Linux default-browser profile fallback",
   oldTexts: [
     `  return path.join(os.homedir(), ".config", "google-chrome");`,
     `  const linuxChromeUserDataDirectory = path.join(os.homedir(), ".config", "google-chrome");
@@ -318,22 +343,27 @@ patchFileFirstMatch(path.join(scriptsDir, "open-chrome-window.js"), {
   return linuxChromeUserDataDirectory;`,
   ],
   newText: linuxDefaultBrowserUserDataFallback,
-  alreadyText: "defaultBrowser ===",
+  alreadyText: "linuxChromiumUserDataDirectory",
 });
 
 patchFile(path.join(scriptsDir, "open-chrome-window.js"), [
   {
-    label: "Linux Brave window command",
+    label: "Linux browser window command",
     oldText: `  return {
     command: "google-chrome",
     args: chromeArgs,
   };`,
     newText: `  const linuxUserDataDirectory = resolveChromeUserDataDirectory();
-  const linuxCommand = linuxUserDataDirectory.includes(
-    path.join(".config", "BraveSoftware", "Brave-Browser"),
-  )
-    ? commandPath("brave-browser") || commandPath("brave") || "brave-browser"
-    : commandPath("google-chrome") || commandPath("chrome") || "google-chrome";
+  let linuxCommand = commandPath("google-chrome") || commandPath("chrome") || "google-chrome";
+  if (
+    linuxUserDataDirectory.includes(
+      path.join(".config", "BraveSoftware", "Brave-Browser"),
+    )
+  ) {
+    linuxCommand = commandPath("brave-browser") || commandPath("brave") || "brave-browser";
+  } else if (linuxUserDataDirectory.includes(path.join(".config", "chromium"))) {
+    linuxCommand = commandPath("chromium") || commandPath("chromium-browser") || "chromium";
+  }
 
   return {
     command: linuxCommand,

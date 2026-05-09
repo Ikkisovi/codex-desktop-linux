@@ -1027,7 +1027,7 @@ test("detects Chrome extension installation from Linux browser profiles", () => 
   );
   assert.match(
     patched,
-    /if\(t===`linux`\)\{let t=codexLinuxChromeCommand\(\)\?\?n\(\);if\(t==null\)throw Error\(`Google Chrome or Brave is not installed`\);await r\(t,\[cm\(e\)\]\);return\}/,
+    /if\(t===`linux`\)\{let t=codexLinuxChromeCommand\(\)\?\?n\(\);if\(t==null\)throw Error\(`Google Chrome, Brave, or Chromium is not installed`\);await r\(t,\[cm\(e\)\]\);return\}/,
   );
   assert.match(patched, /process\.env\.PATH\?\?``/);
   assert.doesNotMatch(patched, /function codexLinuxChromeCommand\(\)\{for\(let e of\[[^\]]+\]\)\{let t=Rp/);
@@ -1050,7 +1050,7 @@ test("detects Chrome extension installation after upstream minifier renames", ()
   assert.match(patched, /await r\(rm,\[`-b`,nm,am\(e\)\]\)/);
   assert.match(
     patched,
-    /if\(t===`linux`\)\{let t=codexLinuxChromeCommand\(\)\?\?n\(\);if\(t==null\)throw Error\(`Google Chrome or Brave is not installed`\);await r\(t,\[am\(e\)\]\);return\}/,
+    /if\(t===`linux`\)\{let t=codexLinuxChromeCommand\(\)\?\?n\(\);if\(t==null\)throw Error\(`Google Chrome, Brave, or Chromium is not installed`\);await r\(t,\[am\(e\)\]\);return\}/,
   );
 });
 

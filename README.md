@@ -27,7 +27,7 @@ Anything systemd-based should work for the optional auto-updater service (`syste
 | Linux tray + warm-start handoff | ✅ always | Single-instance lock, second-instance window focus |
 | GUI install prompts (`kdialog` / `zenity`) | ✅ if installed | Falls back to interactive terminal prompt |
 | Linux browser annotations | ✅ always | Stored-anchor screenshots, isolated marker rendering |
-| Chrome plugin native host | ✅ always | Bundles the upstream Chrome plugin, Linux native-messaging host, `turnEnded` rollout watcher, Chrome/Brave manifest sync, Linux settings status detection, and Brave-aware diagnostics |
+| Chrome plugin native host | ✅ always | Bundles the upstream Chrome plugin, Linux native-messaging host, `turnEnded` rollout watcher, Chrome/Brave/Chromium manifest sync, Linux settings status detection, and Brave/Chromium-aware diagnostics |
 | Linux Computer Use | ⚠️ opt-in | Linux Computer Use backend with screen capture, accessibility, window targeting, and input synthesis. The MCP server registers by default; the in-app UI surface is enabled at your discretion — see "Enabling Computer Use UI" below. Validated on Ubuntu/GNOME, KDE Plasma/KWin, Hyprland, and i3. |
 | Server-gated features (e.g. `gpt-5.5`) | 🟡 server-side | OpenAI rolls per-account, not project-controlled. Building a fresh package does not unlock these. |
 

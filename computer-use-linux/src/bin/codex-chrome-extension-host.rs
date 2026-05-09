@@ -38,8 +38,27 @@ struct PendingChromeRequest {
     client_request_id: Value,
 }
 
+#[derive(Clone)]
 struct PendingClientRequest {
+    client_id: usize,
     chrome_request_id: Value,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ChromeClientRouteError {
+    NoClients,
+    MultipleClients,
+}
+
+impl ChromeClientRouteError {
+    fn message(&self) -> &'static str {
+        match self {
+            Self::NoClients => "No Codex browser client is connected",
+            Self::MultipleClients => {
+                "Multiple Codex browser clients are connected; Chrome requests require exactly one"
+            }
+        }
+    }
 }
 
 struct HostState {
@@ -76,8 +95,11 @@ impl HostState {
 
     fn remove_client(&mut self, client_id: usize) {
         self.clients.remove(&client_id);
-        self.pending_chrome_requests
-            .retain(|_, pending| pending.client_id != client_id);
+        remove_pending_requests_for_client(
+            &mut self.pending_chrome_requests,
+            &mut self.pending_client_requests,
+            client_id,
+        );
     }
 
     fn send_chrome(&self, message: &Value) {
@@ -467,9 +489,13 @@ fn handle_client_message(state: &SharedState, client_id: usize, message: Value) 
         };
 
         let mut state = state.lock().expect("host state mutex poisoned");
-        let Some(pending) = state.pending_client_requests.remove(id) else {
+        let Some(pending) = state.pending_client_requests.get(id).cloned() else {
             return;
         };
+        if pending.client_id != client_id {
+            return;
+        }
+        state.pending_client_requests.remove(id);
 
         state.send_chrome(&with_id(message, pending.chrome_request_id));
         return;
@@ -544,28 +570,53 @@ fn handle_chrome_message(state: &SharedState, message: Value) {
 
     let chrome_request_id = message.get("id").cloned().unwrap_or(Value::Null);
     let mut state = state.lock().expect("host state mutex poisoned");
-    let Some(client_id) = state.clients.keys().next().copied() else {
-        state.send_chrome(&json!({
-            "jsonrpc": "2.0",
-            "id": chrome_request_id,
-            "error": {
-                "code": -32000,
-                "message": "No Codex browser client is connected"
-            }
-        }));
-        return;
+    let client_id = match select_single_client_id(&state.clients) {
+        Ok(client_id) => client_id,
+        Err(error) => {
+            state.send_chrome(&json!({
+                "jsonrpc": "2.0",
+                "id": chrome_request_id,
+                "error": {
+                    "code": -32000,
+                    "message": error.message()
+                }
+            }));
+            return;
+        }
     };
 
     let client_request_id = format!("chrome-{}-{}", process::id(), state.next_client_request_id);
     state.next_client_request_id += 1;
     state.pending_client_requests.insert(
         client_request_id.clone(),
-        PendingClientRequest { chrome_request_id },
+        PendingClientRequest {
+            client_id,
+            chrome_request_id,
+        },
     );
     state.send_client(
         client_id,
         &with_id(message, Value::String(client_request_id)),
     );
+}
+
+fn select_single_client_id(
+    clients: &HashMap<usize, Client>,
+) -> std::result::Result<usize, ChromeClientRouteError> {
+    match clients.len() {
+        0 => Err(ChromeClientRouteError::NoClients),
+        1 => Ok(*clients.keys().next().expect("one client id")),
+        _ => Err(ChromeClientRouteError::MultipleClients),
+    }
+}
+
+fn remove_pending_requests_for_client(
+    pending_chrome_requests: &mut HashMap<String, PendingChromeRequest>,
+    pending_client_requests: &mut HashMap<String, PendingClientRequest>,
+    client_id: usize,
+) {
+    pending_chrome_requests.retain(|_, pending| pending.client_id != client_id);
+    pending_client_requests.retain(|_, pending| pending.client_id != client_id);
 }
 
 fn is_request(message: &Value) -> bool {
@@ -837,6 +888,75 @@ mod tests {
 
         assert!(is_complete);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_chrome_request_routing_without_exactly_one_client() {
+        let clients = HashMap::new();
+        assert_eq!(
+            select_single_client_id(&clients),
+            Err(ChromeClientRouteError::NoClients)
+        );
+
+        let mut clients = HashMap::new();
+        clients.insert(7, test_client());
+        assert_eq!(select_single_client_id(&clients), Ok(7));
+
+        clients.insert(8, test_client());
+        assert_eq!(
+            select_single_client_id(&clients),
+            Err(ChromeClientRouteError::MultipleClients)
+        );
+    }
+
+    #[test]
+    fn disconnect_cleanup_removes_pending_state_for_client() {
+        let mut pending_chrome = HashMap::from([
+            (
+                "keep".to_string(),
+                PendingChromeRequest {
+                    client_id: 1,
+                    client_request_id: json!("chrome-request-1"),
+                },
+            ),
+            (
+                "drop".to_string(),
+                PendingChromeRequest {
+                    client_id: 2,
+                    client_request_id: json!("chrome-request-2"),
+                },
+            ),
+        ]);
+        let mut pending_client = HashMap::from([
+            (
+                "keep".to_string(),
+                PendingClientRequest {
+                    client_id: 1,
+                    chrome_request_id: json!("client-request-1"),
+                },
+            ),
+            (
+                "drop".to_string(),
+                PendingClientRequest {
+                    client_id: 2,
+                    chrome_request_id: json!("client-request-2"),
+                },
+            ),
+        ]);
+
+        remove_pending_requests_for_client(&mut pending_chrome, &mut pending_client, 2);
+
+        assert!(pending_chrome.contains_key("keep"));
+        assert!(!pending_chrome.contains_key("drop"));
+        assert!(pending_client.contains_key("keep"));
+        assert!(!pending_client.contains_key("drop"));
+    }
+
+    fn test_client() -> Client {
+        let (stream, _peer) = UnixStream::pair().unwrap();
+        Client {
+            writer: Arc::new(Mutex::new(stream)),
+        }
     }
 
     fn unique_test_dir(prefix: &str) -> PathBuf {

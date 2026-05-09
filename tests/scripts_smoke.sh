@@ -546,8 +546,9 @@ PY
     assert_contains "$REPO_DIR/launcher/start.sh.template" "run_update_manager"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "sync_browser_use_bundled_plugin_cache"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "sync_chrome_bundled_plugin_cache"
-    assert_contains "$REPO_DIR/launcher/start.sh.template" "com.openai.codexextension"
+    assert_contains "$REPO_DIR/launcher/start.sh.template" "extension-id.json"
     assert_contains "$REPO_DIR/launcher/start.sh.template" ".config/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+    assert_contains "$REPO_DIR/launcher/start.sh.template" ".config/chromium/NativeMessagingHosts"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "scripts/check-extension-installed.js"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "scripts/chrome-is-running.js"
     assert_contains "$REPO_DIR/launcher/start.sh.template" ".tmp/bundled-marketplaces/openai-bundled"
@@ -720,6 +721,9 @@ JSON
     cat > "$chrome_dir/scripts/installManifest.mjs" <<'JS'
 var n={extensionId:"hehggadaopoacecdllhhajmbjkdcmajg",extensionHostName:"com.openai.codexextension"};var p=o=>{let t=`${o.extensionHostName}.json`,r={darwin:["Library/Application Support/Google/Chrome/NativeMessagingHosts"],linux:[".config/google-chrome/NativeMessagingHosts"],win32:["AppData/Local/OpenAI/extension"]}[m.platform()];return r.map(s=>l.resolve(m.homedir(),s,t))};
 JS
+    cat > "$chrome_dir/scripts/extension-id.json" <<'JSON'
+{"extensionId":"hehggadaopoacecdllhhajmbjkdcmajg","extensionHostName":"com.openai.codexextension"}
+JSON
     cat > "$chrome_dir/scripts/browser-client.mjs" <<'JS'
 import{resolve as GF}from"path";import{homedir as VF,platform as WF}from"os";var Tc=GF(VF(),WF()==="win32"?"AppData\\Local\\Google\\Chrome\\User Data":"Library/Application Support/Google/Chrome");
 async fetchBlocked(e){let r=await bS(e.endpoint,{method:"GET"});if(!r.ok)throw new Error(ae(`Browser Use cannot determine if ${e.displayUrl} is allowed. Please try again later or use another source.`));let n=await r.json();return TF(n)}
@@ -816,18 +820,69 @@ test_chrome_plugin_staging() {
     assert_file_exists "$host"
     [ -x "$host" ] || fail "Expected Chrome extension host to be executable: $host"
     assert_contains "$chrome_dir/scripts/installManifest.mjs" "BraveSoftware/Brave-Browser/NativeMessagingHosts"
+    assert_contains "$chrome_dir/scripts/installManifest.mjs" ".config/chromium/NativeMessagingHosts"
     assert_contains "$chrome_dir/scripts/installed-browsers.js" "Brave Browser"
+    assert_contains "$chrome_dir/scripts/installed-browsers.js" "Chromium"
     assert_contains "$chrome_dir/scripts/chrome-is-running.js" "brave-browser"
+    assert_contains "$chrome_dir/scripts/chrome-is-running.js" "chromium-browser"
     assert_contains "$chrome_dir/scripts/check-native-host-manifest.js" 'process.platform === "linux"'
     assert_contains "$chrome_dir/scripts/check-native-host-manifest.js" "BraveSoftware"
+    assert_contains "$chrome_dir/scripts/check-native-host-manifest.js" "chromium"
     assert_contains "$chrome_dir/scripts/check-extension-installed.js" "linuxBraveUserDataDirectory"
+    assert_contains "$chrome_dir/scripts/check-extension-installed.js" "linuxChromiumUserDataDirectory"
     assert_contains "$chrome_dir/scripts/check-extension-installed.js" "linuxCandidateWithInstalledExtension"
     assert_contains "$chrome_dir/scripts/open-chrome-window.js" "brave-browser"
+    assert_contains "$chrome_dir/scripts/open-chrome-window.js" "chromium"
     assert_contains "$chrome_dir/scripts/open-chrome-window.js" "defaultBrowser ==="
     assert_contains "$chrome_dir/scripts/browser-client.mjs" ".config/google-chrome"
     assert_contains "$chrome_dir/scripts/browser-client.mjs" "codexLinuxSiteStatusAllowlistFallback"
     assert_contains "$install_dir/resources/plugins/openai-bundled/.agents/plugins/marketplace.json" '"name": "chrome"'
     assert_contains "$output_log" "Chrome plugin staged from upstream DMG"
+}
+
+test_chrome_native_host_manifest_writer() {
+    info "Checking Chrome native host manifest writer"
+    local workspace="$TMP_DIR/chrome-native-host-manifest"
+    local plugin_dir="$workspace/plugin"
+    local home_dir="$workspace/home"
+    local host_path="$workspace/extension-host"
+    local manifest_path
+
+    mkdir -p "$plugin_dir/scripts" "$home_dir" "$(dirname "$host_path")"
+    printf '#!/bin/sh\n' > "$host_path"
+    chmod +x "$host_path"
+    cat > "$plugin_dir/scripts/extension-id.json" <<'JSON'
+{"extensionId":"abcdefghijklmnopabcdefghijklmnop","extensionHostName":"com.example.codextest"}
+JSON
+
+    python3 - "$REPO_DIR/launcher/start.sh.template" "$host_path" "$home_dir" "$plugin_dir" <<'PY'
+import subprocess
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+marker = "python3 - \"$host_path\" \"$HOME\" \"$plugin_dir\" <<'PY'\n"
+start = source.index(marker) + len(marker)
+end = source.index("\nPY\n", start)
+script = source[start:end]
+subprocess.run(
+    ["python3", "-", sys.argv[2], sys.argv[3], sys.argv[4]],
+    input=script,
+    text=True,
+    check=True,
+)
+PY
+
+    for relative in \
+        ".config/google-chrome/NativeMessagingHosts" \
+        ".config/BraveSoftware/Brave-Browser/NativeMessagingHosts" \
+        ".config/chromium/NativeMessagingHosts"; do
+        manifest_path="$home_dir/$relative/com.example.codextest.json"
+        assert_file_exists "$manifest_path"
+        assert_contains "$manifest_path" "com.example.codextest"
+        assert_contains "$manifest_path" "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"
+        assert_contains "$manifest_path" "$host_path"
+    done
 }
 
 make_fake_extracted_asar() {
@@ -2000,6 +2055,7 @@ main() {
     test_managed_node_runtime_source_install
     test_browser_use_node_repl_fallback_runtime
     test_chrome_plugin_staging
+    test_chrome_native_host_manifest_writer
     test_launcher_template_sanity
     test_side_by_side_launcher_identity
     test_linux_file_manager_patch_smoke

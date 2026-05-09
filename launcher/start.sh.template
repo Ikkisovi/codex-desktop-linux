@@ -375,27 +375,58 @@ chrome_extension_host_arch() {
 
 write_chrome_native_host_manifests() {
     local host_path="$1"
+    local plugin_dir="$2"
 
-    python3 - "$host_path" "$HOME" <<'PY'
+    python3 - "$host_path" "$HOME" "$plugin_dir" <<'PY'
 import json
 import pathlib
+import re
 import sys
 
 host_path = sys.argv[1]
 home = pathlib.Path(sys.argv[2])
-manifest_name = "com.openai.codexextension.json"
+plugin_dir = pathlib.Path(sys.argv[3])
+scripts_dir = plugin_dir / "scripts"
+
+extension_id = None
+host_name = None
+
+extension_id_json = scripts_dir / "extension-id.json"
+try:
+    data = json.loads(extension_id_json.read_text(encoding="utf-8"))
+    extension_id = data.get("extensionId")
+    host_name = data.get("extensionHostName")
+except OSError:
+    pass
+
+if extension_id is None or host_name is None:
+    install_manifest = (scripts_dir / "installManifest.mjs").read_text(encoding="utf-8")
+    extension_id_match = re.search(r'extensionId\s*:\s*"([a-p]{32})"', install_manifest)
+    host_name_match = re.search(r'extensionHostName\s*:\s*"([A-Za-z0-9_.]+)"', install_manifest)
+    if extension_id is None and extension_id_match is not None:
+        extension_id = extension_id_match.group(1)
+    if host_name is None and host_name_match is not None:
+        host_name = host_name_match.group(1)
+
+if not isinstance(extension_id, str) or re.fullmatch(r"[a-p]{32}", extension_id) is None:
+    raise SystemExit("Invalid Chrome extension id in bundled plugin metadata")
+if not isinstance(host_name, str) or re.fullmatch(r"[A-Za-z0-9_.]+", host_name) is None:
+    raise SystemExit("Invalid Chrome native host name in bundled plugin metadata")
+
+manifest_name = f"{host_name}.json"
 manifest = {
-    "name": "com.openai.codexextension",
+    "name": host_name,
     "description": "Codex chrome native messaging host",
     "type": "stdio",
     "path": host_path,
-    "allowed_origins": ["chrome-extension://hehggadaopoacecdllhhajmbjkdcmajg/"],
+    "allowed_origins": [f"chrome-extension://{extension_id}/"],
 }
 text = json.dumps(manifest, separators=(",", ":"))
 
 for relative in (
     ".config/google-chrome/NativeMessagingHosts",
     ".config/BraveSoftware/Brave-Browser/NativeMessagingHosts",
+    ".config/chromium/NativeMessagingHosts",
 ):
     directory = home / relative
     directory.mkdir(parents=True, exist_ok=True)
@@ -472,8 +503,10 @@ sync_chrome_bundled_plugin_cache() {
             scripts/check-extension-installed.js \
             scripts/check-native-host-manifest.js \
             scripts/chrome-is-running.js \
+            scripts/extension-id.json \
             scripts/installed-browsers.js \
             scripts/open-chrome-window.js; do
+            [ -f "$source_plugin/$relative" ] || continue
             if [ ! -f "$cache_plugin/$relative" ] || ! cmp -s "$source_plugin/$relative" "$cache_plugin/$relative"; then
                 needs_copy=1
                 break
@@ -521,7 +554,7 @@ sync_chrome_bundled_plugin_cache() {
 
     host_path="$cache_root/latest/extension-host/linux/$extension_arch/extension-host"
     [ -x "$host_path" ] || return 0
-    write_chrome_native_host_manifests "$host_path" || \
+    write_chrome_native_host_manifests "$host_path" "$cache_root/latest" || \
         echo "Chrome native host manifest sync failed; continuing with existing browser manifests."
 }
 
