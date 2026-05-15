@@ -13,7 +13,8 @@ if [ ! -f "$METADATA_FILE" ]; then
 fi
 
 echo "Install root:      $OPT_ROOT"
-echo "Repo root:         ${REPO_DIR-unknown}"
+echo "Source repo:       ${SOURCE_REPO_DIR-${REPO_DIR-unknown}}"
+echo "Build repo:        ${REPO_DIR-unknown}"
 echo "Build time:        ${BUILD_TIME-unknown}"
 echo "Wrapper repo:      ${REPO_HEAD-unknown}"
 echo "Repo origin:       ${REPO_ORIGIN-unknown}"

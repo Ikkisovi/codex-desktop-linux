@@ -7,7 +7,10 @@ ensure_layout
 load_install_config
 load_metadata
 
-local_head="$(current_repo_head)"
+local_head="${REPO_HEAD-}"
+if [ -z "$local_head" ]; then
+    local_head="$(current_repo_head)"
+fi
 remote_head=""
 dmg_headers=""
 
@@ -37,7 +40,8 @@ if [ "${DMG_ETAG-}" != "$remote_etag" ] || [ "${DMG_LAST_MODIFIED-}" != "$remote
 fi
 
 echo "Install root: $OPT_ROOT"
-echo "Repo root:    $REPO_DIR"
+echo "Source repo:  $SOURCE_REPO_DIR"
+echo "Build repo:   ${REPO_DIR:-$(effective_repo_dir)}"
 echo "Wrapper repo local:  $local_head"
 echo "Wrapper repo remote: $remote_head"
 echo "Cached DMG etag:     ${DMG_ETAG-untracked}"

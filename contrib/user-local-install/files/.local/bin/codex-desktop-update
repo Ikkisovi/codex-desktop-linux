@@ -43,7 +43,10 @@ if [ "$record_only" -eq 1 ]; then
     exit 0
 fi
 
-local_head="$(current_repo_head)"
+local_head="${REPO_HEAD-}"
+if [ -z "$local_head" ]; then
+    local_head="$(current_repo_head)"
+fi
 remote_head=""
 dmg_headers=""
 
@@ -77,12 +80,14 @@ if [ "$repo_changed" -eq 0 ] && [ "$dmg_changed" -eq 0 ] && [ "$force" -eq 0 ]; 
     exit 0
 fi
 
+prepare_build_repo
+
 if [ "$repo_changed" -eq 1 ]; then
-    log "Pulling wrapper updates..."
-    git -C "$REPO_DIR" pull --ff-only
-    if [ -x "$REPO_DIR/contrib/user-local-install/install-user-local.sh" ]; then
+    log "Pulling wrapper updates into managed build checkout..."
+    if [ -x "$BUILD_REPO_DIR/contrib/user-local-install/install-user-local.sh" ]; then
         log "Refreshing installed helper scripts..."
-        "$REPO_DIR/contrib/user-local-install/install-user-local.sh" --from-update
+        CODEX_USER_LOCAL_SOURCE_REPO_DIR="$SOURCE_REPO_DIR" \
+            "$BUILD_REPO_DIR/contrib/user-local-install/install-user-local.sh" --from-update
         load_install_config
         load_metadata
     fi
@@ -95,8 +100,13 @@ fi
 
 log "Rebuilding wrapper..."
 (
-    cd "$REPO_DIR"
-    CODEX_INSTALL_ROOT="$OPT_ROOT" CODEX_INSTALL_DIR="$APP_DIR" ./install.sh
+    cd "$BUILD_REPO_DIR"
+    mkdir -p "$STATE_DIR/tmp"
+    TMPDIR="$STATE_DIR/tmp" \
+    CODEX_INSTALL_ALLOW_RUNNING=1 \
+        CODEX_INSTALL_ROOT="$OPT_ROOT" \
+        CODEX_INSTALL_DIR="$APP_DIR" \
+        ./install.sh
 )
 
 extract_icon
