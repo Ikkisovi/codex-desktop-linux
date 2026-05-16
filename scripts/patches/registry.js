@@ -12,8 +12,8 @@ const {
   linuxTargetSummary,
 } = require("../lib/linux-target-context.js");
 const {
-  loadLinuxFeatureMainBundlePatches,
   loadLinuxFeaturePatchDescriptors,
+  loadLinuxFeatureMainBundlePatches,
 } = require("../lib/linux-features.js");
 const {
   findIconAsset,
@@ -66,6 +66,21 @@ function featurePatchDescriptors() {
       })),
       ...loadLinuxFeaturePatchDescriptors(),
     ],
+  );
+}
+
+function featureWebviewAssetDescriptors() {
+  return normalizePatchDescriptors(
+    loadLinuxFeaturePatchDescriptors()
+      .filter((patch) => patch.phase === "webview-asset")
+      .map((patch, index) => ({
+        ...patch,
+        id: patch.id ?? patch.name,
+        name: patch.name ?? patch.id,
+        phase: "webview-asset",
+        order: patch.order ?? 20_500 + index * 10,
+        ciPolicy: patch.ciPolicy ?? OPTIONAL,
+      })),
   );
 }
 
@@ -207,6 +222,12 @@ function allPatchPolicies(options = {}) {
       appliesTo,
     })),
     ...featurePatchDescriptors().map(({ id, name, ciPolicy, phase, appliesTo }) => ({
+      name: name ?? id,
+      ciPolicy,
+      phase,
+      appliesTo,
+    })),
+    ...featureWebviewAssetDescriptors().map(({ id, name, ciPolicy, phase, appliesTo }) => ({
       name: name ?? id,
       ciPolicy,
       phase,
