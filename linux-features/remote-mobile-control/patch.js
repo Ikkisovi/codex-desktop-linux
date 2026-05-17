@@ -106,25 +106,30 @@ function applyLinuxRemoteControlDeviceKeyPatch(source) {
 }
 
 function applyLinuxRemoteControlPreserveConfigPatch(source) {
-  const patchedNeedle =
-    "async function mV({codexHome:e,hostConfig:n,logger:r=t.Jr()}){if(n.kind===`local`&&process.platform!==`linux`)try{";
-  if (source.includes(patchedNeedle)) {
-    return source;
+  const stripperGuardRegex =
+    /async function [A-Za-z_$][\w$]*\(\{codexHome:[A-Za-z_$][\w$]*,hostConfig:([A-Za-z_$][\w$]*),logger:[A-Za-z_$][\w$]*=[^}]*\}\)\{if\(\1\.kind===`local`\)try\{/gu;
+  const patched = source.replace(stripperGuardRegex, (needle, hostConfigVar) =>
+    needle.replace(
+      `if(${hostConfigVar}.kind===\`local\`)try{`,
+      `if(${hostConfigVar}.kind===\`local\`&&process.platform!==\`linux\`)try{`,
+    ),
+  );
+  if (patched !== source) {
+    return patched;
   }
 
-  const needle = "async function mV({codexHome:e,hostConfig:n,logger:r=t.Jr()}){if(n.kind===`local`)try{";
-  if (!source.includes(needle)) {
-    if (
-      !source.includes("Removed remote_control from config before app-server start") &&
+  const alreadyPatchedRegex =
+    /async function [A-Za-z_$][\w$]*\(\{codexHome:[A-Za-z_$][\w$]*,hostConfig:([A-Za-z_$][\w$]*),logger:[A-Za-z_$][\w$]*=[^}]*\}\)\{if\(\1\.kind===`local`&&process\.platform!==`linux`\)try\{/u;
+  if (
+    alreadyPatchedRegex.test(source) ||
+    !source.includes("Removed remote_control from config before app-server start") &&
       !source.includes("Failed to remove remote_control before app-server start")
-    ) {
-      return source;
-    }
-    console.warn("WARN: Could not find remote-control config stripping needle - skipping Linux remote-control config patch");
+  ) {
     return source;
   }
 
-  return source.replace(needle, patchedNeedle);
+  console.warn("WARN: Could not find remote-control config stripping needle - skipping Linux remote-control config patch");
+  return source;
 }
 
 function applyLinuxRemoteControlVisibilityPatch(source) {

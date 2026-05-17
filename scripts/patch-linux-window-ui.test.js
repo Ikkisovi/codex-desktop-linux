@@ -35,6 +35,7 @@ const {
   applyLinuxOpaqueBackgroundPatch,
   applyLinuxOpaqueWindowsDefaultPatch,
   applyLinuxSetIconPatch,
+  applyLinuxRemoteControlConfigPreservationPatch,
   applyLinuxSingleInstancePatch,
   applyLinuxTrayCloseSettingPatch,
   applyLinuxTrayPatch,
@@ -255,6 +256,7 @@ test("default core patch descriptors are grouped and unique", () => {
     "browser-use-node-repl-approval",
     "linux-browser-use-iab-visible-on-create",
     "linux-chrome-extension-status",
+    "linux-remote-control-config-preservation",
     "linux-app-updater-menu",
     "linux-tray-close-setting",
     "linux-settings-persistence",
@@ -469,6 +471,31 @@ test("adds Linux file manager support without relying on exact minified variable
   assert.match(patched, /linux:\{label:`File Manager`/);
   assert.match(patched, /detect:\(\)=>`linux-file-manager`/);
   assert.match(patched, /n\.shell\.openPath\(__codexOpenTarget\)/);
+});
+
+test("preserves user-enabled remote_control config on Linux", () => {
+  const source = [
+    "async function mV({codexHome:e,hostConfig:n,logger:r=t.Jr()}){if(n.kind===`local`)try{await hV(i.default.join(e??t.Rr({hostConfig:n,preferWsl:t.Kr(n)}),pV))&&r.info(`Removed remote_control from config before app-server start`)}catch(e){r.warning(`Failed to remove remote_control before app-server start`,{safe:{},sensitive:{error:e}})}}",
+    "async function vV({codexHome:e,hostConfig:n,logger:r=t.Jr()}){if(n.kind===`local`)try{await yV(i.default.join(e??t.Rr({hostConfig:n,preferWsl:t.Kr(n)}),_V))&&r.info(`Removed remote_control from config before app-server start`)}catch(e){r.warning(`Failed to remove remote_control before app-server start`,{safe:{},sensitive:{error:e}})}}",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxRemoteControlConfigPreservationPatch, source);
+
+  assert.match(patched, /mV\(\{codexHome:e,hostConfig:n,logger:r=t\.Jr\(\)\}\)\{if\(n\.kind===`local`&&process\.platform!==`linux`\)try\{/);
+  assert.match(patched, /vV\(\{codexHome:e,hostConfig:n,logger:r=t\.Jr\(\)\}\)\{if\(n\.kind===`local`&&process\.platform!==`linux`\)try\{/);
+  assert.equal((patched.match(/process\.platform!==`linux`/g) ?? []).length, 2);
+});
+
+test("warns when upstream still strips remote_control but the guard shape drifts", () => {
+  const source =
+    "async()=>{await yV(path)&&logger.info(`Removed remote_control from config before app-server start`)}";
+
+  const { value, warnings } = captureWarns(() =>
+    applyLinuxRemoteControlConfigPreservationPatch(source),
+  );
+
+  assert.equal(value, source);
+  assert.match(warnings.join("\n"), /remote-control config stripper guard/);
 });
 
 test("adds the Linux quit guard when electron/path/fs requires are split across statements", () => {

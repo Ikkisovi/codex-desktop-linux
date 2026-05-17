@@ -43,6 +43,7 @@ function syntheticCurrentMainBundle() {
     "function mz(e){return Buffer.from(JSON.stringify({domain:`codex-device-key-sign-payload/v1`,payload:e}),`utf8`)}",
     "var lz=(0,b.createRequire)(__filename),uz=`remote-control-device-key.node`,dz=`codex-device-key-sign-payload/v1`;",
     "function pz({resourcesPath:e}){let t=null,n=()=>{if(process.platform!==`darwin`)throw Error(`Remote control device keys are only available on macOS`);if(e==null)throw Error(`Remote control device keys require resourcesPath`);return t??=lz((0,i.join)(e,`native`,uz)),t};return{createDeviceKey:e=>n().createDeviceKey(e??`hardware_only`),deleteDeviceKey:e=>n().deleteDeviceKey(e),getDeviceKeyPublic:e=>n().getDeviceKeyPublic(e),signDeviceKey:async(e,t)=>{let r=mz(t);return{...await n().signDeviceKey(e,r),signedPayloadBase64:r.toString(`base64`)}}}}",
+    "async function vV({codexHome:e,hostConfig:n,logger:r=t.Jr()}){if(n.kind===`local`)try{await yV(i.default.join(e??t.Rr({hostConfig:n,preferWsl:t.Kr(n)}),_V))&&r.info(`Removed remote_control from config before app-server start`)}catch(e){r.warning(`Failed to remove remote_control before app-server start`,{safe:{},sensitive:{error:e}})}}",
   ].join("");
 }
 
@@ -143,12 +144,13 @@ test("Linux remote-control patches update the device-key provider and preserve c
 
 test("Linux remote-control device-key patch handles current minified aliases", () => {
   const source = syntheticCurrentMainBundle();
-  const patched = applyLinuxRemoteControlDeviceKeyPatch(source);
+  const patched = applyLinuxRemoteControlPreserveConfigPatch(applyLinuxRemoteControlDeviceKeyPatch(source));
 
   assert.notEqual(patched, source);
   assert.match(patched, /codexLinuxRemoteControlDeviceKeyClient/);
   assert.match(patched, /process\.platform===`linux`\)return codexLinuxRemoteControlDeviceKeyClient\(\)/);
-  assert.equal(applyLinuxRemoteControlDeviceKeyPatch(patched), patched);
+  assert.match(patched, /n\.kind===`local`&&process\.platform!==`linux`/);
+  assert.equal(applyLinuxRemoteControlPreserveConfigPatch(applyLinuxRemoteControlDeviceKeyPatch(patched)), patched);
 });
 
 test("Linux remote-control visibility patch allows Linux when upstream marks availability false", () => {
@@ -325,8 +327,14 @@ test("remote mobile control feature participates in ASAR patching and reports", 
         );
         assert.ok(
           report.patches.some((patch) =>
-            patch.name === "feature:remote-mobile-control:linux-remote-control-preserve-config" &&
+            patch.name === "linux-remote-control-config-preservation" &&
             patch.status === "applied",
+          ),
+        );
+        assert.ok(
+          report.patches.some((patch) =>
+            patch.name === "feature:remote-mobile-control:linux-remote-control-preserve-config" &&
+            patch.status === "already-applied",
           ),
         );
         assert.ok(
