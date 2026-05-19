@@ -1033,6 +1033,142 @@ test_setup_native_wizard_warns_when_conversation_mode_lacks_read_aloud() {
     assert_contains "$output_log" "conversation-mode is enabled without read-aloud"
 }
 
+test_setup_native_wizard_dry_runs_deps_and_install_native() {
+    info "Checking setup-native wizard dry-run dependency and native install orchestration"
+    local workspace="$TMP_DIR/setup-native-dry-run-install"
+    local features_root="$workspace/linux-features"
+    local config="$workspace/features.json"
+    local output_log="$workspace/output.log"
+
+    make_wizard_feature_root "$features_root"
+    printf '%s\n' '{"enabled":[]}' > "$config"
+
+    CODEX_BOOTSTRAP_NONINTERACTIVE=1 \
+    CODEX_BOOTSTRAP_DRY_RUN=1 \
+    CODEX_BOOTSTRAP_INSTALL_DEPS=1 \
+    CODEX_BOOTSTRAP_INSTALL_NATIVE=1 \
+    CODEX_LINUX_FEATURES_ROOT="$features_root" \
+    CODEX_LINUX_FEATURES_CONFIG="$config" \
+    PACKAGE_WITH_UPDATER=0 \
+        bash "$REPO_DIR/scripts/bootstrap-wizard.sh" >"$output_log"
+
+    assert_contains "$output_log" "Would run: bash scripts/install-deps.sh"
+    assert_contains "$output_log" "Would run: PACKAGE_WITH_UPDATER=0 make install-native"
+    assert_contains "$output_log" "Dry-run mode: no dependency install or native package install command was executed."
+}
+
+test_setup_native_wizard_prints_deep_readiness_guidance() {
+    info "Checking setup-native wizard detailed Computer Use and Read Aloud readiness"
+    local workspace="$TMP_DIR/setup-native-readiness"
+    local features_root="$workspace/linux-features"
+    local config="$workspace/features.json"
+    local output_log="$workspace/output.log"
+    local fake_home="$workspace/home"
+
+    make_wizard_feature_root "$features_root"
+    printf '%s\n' '{"enabled":["read-aloud","read-aloud-mcp"]}' > "$config"
+    mkdir -p "$fake_home/.config/codex-desktop" "$fake_home/.local/share/codex-desktop/read-aloud"
+
+    HOME="$fake_home" \
+    XDG_CONFIG_HOME="$fake_home/.config" \
+    XDG_DATA_HOME="$fake_home/.local/share" \
+    XDG_CURRENT_DESKTOP=KDE \
+    DESKTOP_SESSION=plasma \
+    XDG_SESSION_TYPE=wayland \
+    CODEX_BOOTSTRAP_NONINTERACTIVE=1 \
+    CODEX_LINUX_FEATURES_ROOT="$features_root" \
+    CODEX_LINUX_FEATURES_CONFIG="$config" \
+        bash "$REPO_DIR/scripts/bootstrap-wizard.sh" >"$output_log"
+
+    assert_contains "$output_log" "Computer Use details:"
+    assert_contains "$output_log" "uinput="
+    assert_contains "$output_log" "current user in input group="
+    assert_contains "$output_log" "Window backend hint: KDE/Plasma -> KWin"
+    assert_contains "$output_log" "Suggested ydotool command:"
+    assert_contains "$output_log" "Suggested portal package:"
+    assert_contains "$output_log" "Read Aloud readiness:"
+    assert_contains "$output_log" "Kokoro python:"
+    assert_contains "$output_log" "Read Aloud plugin cache:"
+}
+
+test_setup_native_wizard_cleanup_requires_interactive_confirmation() {
+    info "Checking setup-native wizard cleanup refuses non-interactive deletion"
+    local workspace="$TMP_DIR/setup-native-cleanup-noninteractive"
+    local features_root="$workspace/linux-features"
+    local config="$workspace/features.json"
+    local output_log="$workspace/output.log"
+    local fake_home="$workspace/home"
+    local key_file="$fake_home/.config/codex-desktop/remote-control-device-keys-v1.json"
+
+    make_wizard_feature_root "$features_root"
+    printf '%s\n' '{"enabled":["remote-mobile-control"]}' > "$config"
+    mkdir -p "$(dirname "$key_file")"
+    printf '%s\n' '{"deviceKeys":[]}' > "$key_file"
+
+    if HOME="$fake_home" \
+        XDG_CONFIG_HOME="$fake_home/.config" \
+        CODEX_BOOTSTRAP_NONINTERACTIVE=1 \
+        CODEX_BOOTSTRAP_CLEANUP_FEATURES="remote-mobile-control" \
+        CODEX_LINUX_FEATURES_ROOT="$features_root" \
+        CODEX_LINUX_FEATURES_CONFIG="$config" \
+            bash "$REPO_DIR/scripts/bootstrap-wizard.sh" >"$output_log" 2>&1; then
+        fail "setup wizard should refuse non-interactive cleanup"
+    fi
+
+    assert_file_exists "$key_file"
+    assert_contains "$output_log" "Cleanup requires an interactive terminal and exact path confirmation."
+}
+
+test_setup_native_wizard_cleanup_deletes_only_confirmed_paths() {
+    info "Checking setup-native wizard deletes only explicitly confirmed cleanup paths"
+    local workspace="$TMP_DIR/setup-native-cleanup-confirmed"
+    local features_root="$workspace/linux-features"
+    local config="$workspace/features.json"
+    local output_log="$workspace/output.log"
+    local fake_home="$workspace/home"
+    local key_file="$fake_home/.config/codex-desktop/remote-control-device-keys-v1.json"
+    local read_aloud_data="$fake_home/.local/share/codex-desktop/read-aloud"
+    local plugin_cache="$fake_home/.codex/plugins/cache/openai-bundled/read-aloud"
+
+    make_wizard_feature_root "$features_root"
+    printf '%s\n' '{"enabled":["remote-mobile-control","read-aloud"]}' > "$config"
+    mkdir -p "$(dirname "$key_file")" "$read_aloud_data" "$plugin_cache"
+    printf '%s\n' '{"deviceKeys":[]}' > "$key_file"
+    printf '%s\n' 'model marker' > "$read_aloud_data/model"
+    printf '%s\n' 'cache marker' > "$plugin_cache/marker"
+
+    if ! command -v script >/dev/null 2>&1; then
+        info "Skipping interactive cleanup smoke test because script(1) is unavailable"
+        return
+    fi
+
+    (
+        export HOME="$fake_home"
+        export XDG_CONFIG_HOME="$fake_home/.config"
+        export XDG_DATA_HOME="$fake_home/.local/share"
+        export CODEX_BOOTSTRAP_CLEANUP_FEATURES="remote-mobile-control,read-aloud"
+        export CODEX_LINUX_FEATURES_ROOT="$features_root"
+        export CODEX_LINUX_FEATURES_CONFIG="$config"
+        {
+            printf '\n'
+            printf '\n'
+            printf '\n'
+            printf 'DELETE %s\n' "$key_file"
+            printf 'DELETE %s\n' "$read_aloud_data"
+            printf '\n'
+            printf '\n'
+            printf '\n'
+        } | script -qefc "bash $REPO_DIR/scripts/bootstrap-wizard.sh" /dev/null >"$output_log"
+    )
+
+    assert_file_not_exists "$key_file"
+    [ ! -e "$read_aloud_data" ] || fail "Expected confirmed Read Aloud data path to be deleted"
+    assert_file_exists "$plugin_cache/marker"
+    assert_contains "$output_log" "Deleted $key_file"
+    assert_contains "$output_log" "Deleted $read_aloud_data"
+    assert_contains "$output_log" "Skipped $plugin_cache"
+}
+
 test_upstream_build_app_workflow_tracks_dmg_metadata() {
     info "Checking upstream build-app workflow metadata and cache behavior"
     local workflow="$REPO_DIR/.github/workflows/upstream-build-app.yml"
@@ -4022,6 +4158,10 @@ main() {
     test_setup_native_wizard_uses_package_name_for_installed_state
     test_setup_native_wizard_portal_summary_survives_busctl_sigpipe
     test_setup_native_wizard_warns_when_conversation_mode_lacks_read_aloud
+    test_setup_native_wizard_dry_runs_deps_and_install_native
+    test_setup_native_wizard_prints_deep_readiness_guidance
+    test_setup_native_wizard_cleanup_requires_interactive_confirmation
+    test_setup_native_wizard_cleanup_deletes_only_confirmed_paths
     test_upstream_build_app_workflow_tracks_dmg_metadata
     test_installer_detects_electron_version_from_plist
     test_installer_keeps_electron_fallback_for_bad_metadata
