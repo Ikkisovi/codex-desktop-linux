@@ -105,6 +105,7 @@ const conversationGlobals = [
   "codexLinuxConversationStopSpeaking",
   "codexLinuxConversationSync",
   "codexLinuxConversationToggle",
+  "codexLinuxConversationToggleMute",
   "codexLinuxConversationVersion",
 ];
 
@@ -356,7 +357,7 @@ test("main bundle patch allows conversation mode to use Read Aloud", () => {
 
 test("composer runtime appends one browser-side conversation controller", () => {
   const patched = twice(applyComposerRuntimePatch, "console.log(`composer`);");
-  assert.match(patched, /conversation-mode-v17/);
+  assert.match(patched, /conversation-mode-v18/);
   assert.match(patched, /activeConversationId/);
   assert.match(patched, /seenAssistantKeys/);
   assert.match(patched, /assistantKey/);
@@ -373,6 +374,7 @@ test("composer runtime appends one browser-side conversation controller", () => 
   assert.match(patched, /interruptPendingEpoch/);
   assert.match(patched, /clearTimeout\(n\.timer\)/);
   assert.match(patched, /codexLinuxConversationToggle/);
+  assert.match(patched, /codexLinuxConversationToggleMute/);
   assert.match(patched, /codexLinuxConversationSync/);
   assert.match(patched, /codexLinuxConversationIsActive/);
   assert.match(patched, /codexLinuxConversationStop/);
@@ -383,7 +385,11 @@ test("composer runtime appends one browser-side conversation controller", () => 
   assert.match(patched, /codex-linux-conversation-composer-aura::after/);
   assert.match(patched, /codex-linux-conversation-aura/);
   assert.match(patched, /codex-linux-conversation-stop/);
+  assert.match(patched, /codex-linux-conversation-mute/);
+  assert.match(patched, /codex-linux-conversation-muted/);
   assert.match(patched, /Stop conversation mode/);
+  assert.match(patched, /Mute microphone/);
+  assert.match(patched, /Unmute microphone/);
   assert.match(patched, /codexLinuxConversationEndpoint/);
   assert.match(patched, /codexLinuxConversationAssistant/);
   assert.match(patched, /codexLinuxConversationShouldSendTranscript/);
@@ -538,6 +544,58 @@ test("conversation runtime shows an active aura and explicit stop control", () =
     assert.equal(stopButton.hidden, true);
     assert.ok(fetchBodies(events).some((body) => body.action === "stop"));
     assert.deepEqual(stopActions, ["discard"]);
+  }, { document: fakeDocument });
+});
+
+test("conversation runtime can mute the user microphone without exiting", () => {
+  const fakeDocument = createFakeDocument();
+  withConversationRuntime(({ timers }) => {
+    let startCount = 0;
+    const stopActions = [];
+    const controls = {
+      conversationId: "thread-a",
+      isResponseInProgress: false,
+      startDictation() {
+        startCount++;
+      },
+      stopDictation(action) {
+        stopActions.push(action);
+      },
+      onStop() {},
+    };
+
+    assert.equal(globalThis.codexLinuxConversationToggle(controls), true);
+    runTimer(timers, (timer) => timer.delay === 0, "initial listening restart");
+    assert.equal(startCount, 1);
+
+    const muteButton = fakeDocument.getElementById("codex-linux-conversation-mute");
+    assert.ok(muteButton);
+    assert.equal(muteButton.hidden, false);
+    assert.equal(muteButton.title, "Mute microphone");
+    assert.equal(muteButton["aria-pressed"], "false");
+
+    muteButton.listeners.click({
+      preventDefault() {},
+      stopPropagation() {},
+    });
+
+    assert.equal(globalThis.codexLinuxConversationIsActive("thread-a"), true);
+    assert.equal(fakeDocument.bodyClassList.contains("codex-linux-conversation-active"), true);
+    assert.equal(fakeDocument.bodyClassList.contains("codex-linux-conversation-muted"), true);
+    assert.equal(muteButton.title, "Unmute microphone");
+    assert.equal(muteButton["aria-pressed"], "true");
+    assert.deepEqual(stopActions, ["discard"]);
+    assert.equal(globalThis.codexLinuxConversationShouldSendTranscript("This muted audio should be ignored.", "send"), false);
+
+    globalThis.codexLinuxConversationSync("thread-a", { ...controls, isResponseInProgress: false });
+    assert.equal(startCount, 1);
+
+    assert.equal(globalThis.codexLinuxConversationToggleMute(), true);
+    assert.equal(fakeDocument.bodyClassList.contains("codex-linux-conversation-muted"), false);
+    assert.equal(muteButton.title, "Mute microphone");
+    assert.equal(muteButton["aria-pressed"], "false");
+    runTimer(timers, (timer) => timer.delay === 0, "unmuted listening restart");
+    assert.equal(startCount, 2);
   }, { document: fakeDocument });
 });
 
