@@ -1086,7 +1086,9 @@ test_setup_native_wizard_prints_deep_readiness_guidance() {
     XDG_DATA_HOME="$fake_home/.local/share" \
     XDG_CURRENT_DESKTOP=KDE \
     DESKTOP_SESSION=plasma \
+    XDG_SESSION_DESKTOP=plasma \
     XDG_SESSION_TYPE=wayland \
+    CODEX_LINUX_SETTINGS_FILE="$fake_home/.config/codex-desktop/settings.json" \
     CODEX_BOOTSTRAP_NONINTERACTIVE=1 \
     CODEX_LINUX_FEATURES_ROOT="$features_root" \
     CODEX_LINUX_FEATURES_CONFIG="$config" \
@@ -1154,6 +1156,7 @@ test_setup_native_wizard_read_aloud_paths_match_runtime_defaults() {
     XDG_DATA_HOME="$fake_home/.local/share" \
     CODEX_LINUX_APP_ID="codex-cua-lab" \
     CODEX_APP_ID="codex-desktop" \
+    CODEX_LINUX_SETTINGS_FILE="$fake_home/.config/codex-cua-lab/settings.json" \
     CODEX_BOOTSTRAP_NONINTERACTIVE=1 \
     CODEX_LINUX_FEATURES_ROOT="$features_root" \
     CODEX_LINUX_FEATURES_CONFIG="$config" \
@@ -1178,6 +1181,7 @@ test_setup_native_wizard_sway_hint_is_conservative() {
 
     XDG_CURRENT_DESKTOP=sway \
     DESKTOP_SESSION=sway \
+    XDG_SESSION_DESKTOP=sway \
     CODEX_BOOTSTRAP_NONINTERACTIVE=1 \
     CODEX_LINUX_FEATURES_ROOT="$features_root" \
     CODEX_LINUX_FEATURES_CONFIG="$config" \
@@ -1448,7 +1452,7 @@ SCRIPT
     chmod +x "$start_script"
 
     set +e
-    CODEX_WEBVIEW_PORT="$huge_port" "$start_script" --help >"$launcher_stdout" 2>"$launcher_stderr"
+    CODEX_WEBVIEW_PORT="$huge_port" bash "$start_script" --help >"$launcher_stdout" 2>"$launcher_stderr"
     rc=$?
     set -e
     [ "$rc" -ne 0 ] || fail "Expected launcher validation to reject oversized CODEX_WEBVIEW_PORT"
@@ -1469,7 +1473,7 @@ SCRIPT
 printf '%s\n' "$CODEX_LINUX_WEBVIEW_PORT"
 SCRIPT
     chmod +x "$launcher_probe_script"
-    CODEX_WEBVIEW_PORT=00080 "$launcher_probe_script" >"$launcher_stdout" 2>"$launcher_stderr"
+    CODEX_WEBVIEW_PORT=00080 bash "$launcher_probe_script" >"$launcher_stdout" 2>"$launcher_stderr"
     [ "$(tail -n 1 "$launcher_stdout")" = "80" ] || fail "Expected launcher validation to canonicalize leading-zero CODEX_WEBVIEW_PORT"
     [ ! -s "$launcher_stderr" ] || fail "Expected launcher leading-zero canonicalization to be quiet, got: $(cat "$launcher_stderr")"
 }
@@ -2137,6 +2141,44 @@ PY
     assert_contains "$REPO_DIR/contrib/user-local-install/install-user-local.sh" "--force-x11"
     assert_contains "$REPO_DIR/contrib/user-local-install/install-user-local.sh" "user-local.env"
     assert_contains "$REPO_DIR/contrib/user-local-install/README.md" "--force-x11"
+
+    node - "$REPO_DIR/launcher/start.sh.template" <<'NODE' || fail "Bundled backend plugin cache syncs must expose marketplace plugin links"
+const fs = require("node:fs");
+const launcher = fs.readFileSync(process.argv[2], "utf8");
+
+function functionBody(name, nextName) {
+  const pattern = new RegExp(`${name}\\(\\) \\{([\\s\\S]*?)\\n\\}\\n\\n${nextName}\\(\\) \\{`, "u");
+  const match = launcher.match(pattern);
+  if (match == null) {
+    throw new Error(`missing ${name}`);
+  }
+  return match[1];
+}
+
+function assertCacheLinks({ body, plugin }) {
+  for (const required of [
+    `marketplace_plugin_link="$marketplace_root/plugins/${plugin}"`,
+    'ln -sfn "$version" "$cache_root/latest"',
+    'ln -sfn "$cache_root/latest" "$marketplace_plugin_link"',
+  ]) {
+    if (!body.includes(required)) {
+      throw new Error(`${plugin} sync missing ${required}`);
+    }
+  }
+  if (!body.includes("needs_copy=0")) {
+    throw new Error(`${plugin} sync must refresh links on cache hits`);
+  }
+}
+
+assertCacheLinks({
+  body: functionBody("sync_computer_use_bundled_plugin_cache", "sync_read_aloud_bundled_plugin_cache"),
+  plugin: "computer-use",
+});
+assertCacheLinks({
+  body: functionBody("sync_read_aloud_bundled_plugin_cache", "resolve_browser_use_runtime_env"),
+  plugin: "read-aloud",
+});
+NODE
 }
 
 test_side_by_side_launcher_identity() {
