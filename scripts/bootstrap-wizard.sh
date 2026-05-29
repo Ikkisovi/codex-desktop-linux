@@ -1191,15 +1191,19 @@ prompt_for_feature_changes_gui() {
 
     local selected="" status=0
     if command -v zenity >/dev/null 2>&1; then
+        # Columns: [Enable checkbox] [feature id] [title]. Print the id column
+        # (2) one per line. `--separate-output` was removed in zenity 4.x, so we
+        # pin the row separator with `--separator` instead for both 3.x and 4.x.
         local -a rows=()
         for id in "${all_ids[@]}"; do
             if [ -n "${enabled_now[$id]:-}" ]; then rows+=("TRUE"); else rows+=("FALSE"); fi
             rows+=("$id" "${title_of[$id]}")
         done
-        selected="$(zenity --list --checklist --separate-output \
+        selected="$(zenity --list --checklist \
             --title="Codex Desktop Linux features" \
             --text="Select the optional Linux features to enable for the next build." \
             --column="Enable" --column="Feature" --column="Description" \
+            --print-column=2 --separator=$'\n' \
             "${rows[@]}" 2>/dev/null)" || status=$?
     else
         local -a rows=()
