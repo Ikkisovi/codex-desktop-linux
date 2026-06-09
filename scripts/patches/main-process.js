@@ -899,31 +899,32 @@ function applyLinuxTrayPatch(currentSource, iconPathExpression) {
 }
 
 function buildLinuxBuildInfoHelpers(electronVar, fsVar, pathVar) {
-  return `function codexLinuxBuildInfoPaths(){let e=[];try{e.push((0,${pathVar}.join)(process.resourcesPath,\`codex-linux-build-info.json\`)),e.push((0,${pathVar}.join)(process.resourcesPath,\`..\`,\`.codex-linux\`,\`build-info.json\`))}catch{}return e}function codexLinuxReadBuildInfo(){for(let e of codexLinuxBuildInfoPaths())try{if(${fsVar}.existsSync(e)){let t=JSON.parse(${fsVar}.readFileSync(e,\`utf8\`));if(t&&typeof t===\`object\`&&!Array.isArray(t))return{info:t,path:e}}}catch{}return{info:null,path:null}}function codexLinuxBuildInfoValue(e,t=\`unknown\`){return typeof e===\`string\`&&e.trim().length>0?e:Array.isArray(e)&&e.length>0?e.join(\`, \`):e==null?t:String(e)}function codexLinuxBuildInfoCommitUrl(e){let t=e?.source?.commitUrl;return typeof t===\`string\`&&/^https:\\/\\/github\\.com\\/[^/\\s]+\\/[^/\\s]+\\/commit\\/[0-9a-f]{7,40}$/i.test(t)?t:null}function codexLinuxGetBuildInfo(){let e=codexLinuxReadBuildInfo();return{...e,commitUrl:codexLinuxBuildInfoCommitUrl(e.info)}}function codexLinuxBuildInfoDetail(e,t){if(!e)return\`No Linux build metadata file was found in this app install.\`;let n=e.linuxTarget??{},r=n.distro??{},i=e.upstreamDmg??{},a=e.source??{},o=e.linuxFeatures?.enabled??[],s=e.packageProfile??{},l=a.commit||a.shortCommit,u=l?a.dirty?\`\${l} (dirty)\`:l:\`unknown\`,d=r.prettyName||[r.id,r.versionId].filter(Boolean).join(\` \`)||\`unknown\`,c=codexLinuxBuildInfoCommitUrl(e);return[\`Metadata file: \${codexLinuxBuildInfoValue(t)}\`,\`Linux package profile: \${codexLinuxBuildInfoValue(s.label)}\`,\`Distro: \${d}\`,\`Package manager: \${codexLinuxBuildInfoValue(n.packageManager??s.packageManager)}\`,\`Package format: \${codexLinuxBuildInfoValue(n.packageFormat??s.format)}\`,\`Enabled features: \${o.length>0?o.join(\`, \`):\`none\`}\`,\`Upstream app version: \${codexLinuxBuildInfoValue(i.appVersion)}\`,\`Upstream DMG SHA256: \${codexLinuxBuildInfoValue(i.sha256)}\`,\`Electron: \${codexLinuxBuildInfoValue(e.electronVersion)}\`,\`Linux source commit: \${u}\`,...(c?[\`Source commit URL: \${c}\`]:[]),\`Source branch: \${codexLinuxBuildInfoValue(a.branch)}\`,\`Generated: \${codexLinuxBuildInfoValue(e.generatedAt)}\`].join(\`\\n\`)}async function codexLinuxOpenBuildInfoCommit(){let e=codexLinuxGetBuildInfo();return e.commitUrl?(await ${electronVar}.shell?.openExternal(e.commitUrl),{success:!0}):{success:!1}}async function codexLinuxShowBuildInfo(){try{let e=codexLinuxGetBuildInfo(),t=e.commitUrl,n=e.path,r=[],i=0;t&&r.push(\`Open Source Commit\`),n&&r.push(\`Open Metadata File\`),r.push(\`OK\`);let a=await ${electronVar}.dialog?.showMessageBox({type:\`info\`,buttons:r,defaultId:r.length-1,cancelId:r.length-1,message:\`Codex Desktop Linux build information\`,detail:codexLinuxBuildInfoDetail(e.info,n)});if(t&&a?.response===i++){await ${electronVar}.shell?.openExternal(t);return}if(n&&a?.response===i++)await ${electronVar}.shell?.openPath?.(n)}catch{}}`;
+  return `function codexLinuxBuildInfoPaths(){let __codexBuildInfoPaths=[];try{__codexBuildInfoPaths.push((0,${pathVar}.join)(process.resourcesPath,\`codex-linux-build-info.json\`)),__codexBuildInfoPaths.push((0,${pathVar}.join)(process.resourcesPath,\`..\`,\`.codex-linux\`,\`build-info.json\`))}catch{}return __codexBuildInfoPaths}function codexLinuxReadBuildInfo(){for(let __codexBuildInfoPath of codexLinuxBuildInfoPaths())try{if(${fsVar}.existsSync(__codexBuildInfoPath)){let __codexBuildInfo=JSON.parse(${fsVar}.readFileSync(__codexBuildInfoPath,\`utf8\`));if(__codexBuildInfo&&typeof __codexBuildInfo===\`object\`&&!Array.isArray(__codexBuildInfo))return{info:__codexBuildInfo,path:__codexBuildInfoPath}}}catch{}return{info:null,path:null}}function codexLinuxBuildInfoValue(__codexBuildInfoValue,__codexBuildInfoFallback=\`unknown\`){return typeof __codexBuildInfoValue===\`string\`&&__codexBuildInfoValue.trim().length>0?__codexBuildInfoValue:Array.isArray(__codexBuildInfoValue)&&__codexBuildInfoValue.length>0?__codexBuildInfoValue.join(\`, \`):__codexBuildInfoValue==null?__codexBuildInfoFallback:String(__codexBuildInfoValue)}function codexLinuxBuildInfoCommitUrl(__codexBuildInfo){let __codexBuildInfoCommitUrl=__codexBuildInfo?.source?.commitUrl;return typeof __codexBuildInfoCommitUrl===\`string\`&&/^https:\\/\\/github\\.com\\/[^/\\s]+\\/[^/\\s]+\\/commit\\/[0-9a-f]{7,40}$/i.test(__codexBuildInfoCommitUrl)?__codexBuildInfoCommitUrl:null}function codexLinuxGetBuildInfo(){let __codexBuildInfoResult=codexLinuxReadBuildInfo();return{...__codexBuildInfoResult,commitUrl:codexLinuxBuildInfoCommitUrl(__codexBuildInfoResult.info)}}function codexLinuxBuildInfoDetail(__codexBuildInfo,__codexBuildInfoPath){if(!__codexBuildInfo)return\`No Linux build metadata file was found in this app install.\`;let __codexBuildInfoTarget=__codexBuildInfo.linuxTarget??{},__codexBuildInfoDistro=__codexBuildInfoTarget.distro??{},__codexBuildInfoDmg=__codexBuildInfo.upstreamDmg??{},__codexBuildInfoSource=__codexBuildInfo.source??{},__codexBuildInfoFeatures=__codexBuildInfo.linuxFeatures?.enabled??[],__codexBuildInfoProfile=__codexBuildInfo.packageProfile??{},__codexBuildInfoCommit=__codexBuildInfoSource.commit||__codexBuildInfoSource.shortCommit,__codexBuildInfoCommitValue=__codexBuildInfoCommit?__codexBuildInfoSource.dirty?\`\${__codexBuildInfoCommit} (dirty)\`:__codexBuildInfoCommit:\`unknown\`,__codexBuildInfoDistroValue=__codexBuildInfoDistro.prettyName||[__codexBuildInfoDistro.id,__codexBuildInfoDistro.versionId].filter(Boolean).join(\` \`)||\`unknown\`,__codexBuildInfoCommitLink=codexLinuxBuildInfoCommitUrl(__codexBuildInfo);return[\`Metadata file: \${codexLinuxBuildInfoValue(__codexBuildInfoPath)}\`,\`Linux package profile: \${codexLinuxBuildInfoValue(__codexBuildInfoProfile.label)}\`,\`Distro: \${__codexBuildInfoDistroValue}\`,\`Package manager: \${codexLinuxBuildInfoValue(__codexBuildInfoTarget.packageManager??__codexBuildInfoProfile.packageManager)}\`,\`Package format: \${codexLinuxBuildInfoValue(__codexBuildInfoTarget.packageFormat??__codexBuildInfoProfile.format)}\`,\`Enabled features: \${__codexBuildInfoFeatures.length>0?__codexBuildInfoFeatures.join(\`, \`):\`none\`}\`,\`Upstream app version: \${codexLinuxBuildInfoValue(__codexBuildInfoDmg.appVersion)}\`,\`Upstream DMG SHA256: \${codexLinuxBuildInfoValue(__codexBuildInfoDmg.sha256)}\`,\`Electron: \${codexLinuxBuildInfoValue(__codexBuildInfo.electronVersion)}\`,\`Linux source commit: \${__codexBuildInfoCommitValue}\`,...(__codexBuildInfoCommitLink?[\`Source commit URL: \${__codexBuildInfoCommitLink}\`]:[]),\`Source branch: \${codexLinuxBuildInfoValue(__codexBuildInfoSource.branch)}\`,\`Generated: \${codexLinuxBuildInfoValue(__codexBuildInfo.generatedAt)}\`].join(\`\\n\`)}async function codexLinuxOpenBuildInfoCommit(){let __codexBuildInfoResult=codexLinuxGetBuildInfo();return __codexBuildInfoResult.commitUrl?(await ${electronVar}.shell?.openExternal(__codexBuildInfoResult.commitUrl),{success:!0}):{success:!1}}async function codexLinuxShowBuildInfo(){try{let __codexBuildInfoResult=codexLinuxGetBuildInfo(),__codexBuildInfoCommitUrl=__codexBuildInfoResult.commitUrl,__codexBuildInfoPath=__codexBuildInfoResult.path,__codexBuildInfoButtons=[],__codexBuildInfoButtonIndex=0;__codexBuildInfoCommitUrl&&__codexBuildInfoButtons.push(\`Open Source Commit\`),__codexBuildInfoPath&&__codexBuildInfoButtons.push(\`Open Metadata File\`),__codexBuildInfoButtons.push(\`OK\`);let __codexBuildInfoBoxResponse=await ${electronVar}.dialog?.showMessageBox({type:\`info\`,buttons:__codexBuildInfoButtons,defaultId:__codexBuildInfoButtons.length-1,cancelId:__codexBuildInfoButtons.length-1,message:\`Codex Desktop Linux build information\`,detail:codexLinuxBuildInfoDetail(__codexBuildInfoResult.info,__codexBuildInfoPath)});if(__codexBuildInfoCommitUrl&&__codexBuildInfoBoxResponse?.response===__codexBuildInfoButtonIndex++){await ${electronVar}.shell?.openExternal(__codexBuildInfoCommitUrl);return}if(__codexBuildInfoPath&&__codexBuildInfoBoxResponse?.response===__codexBuildInfoButtonIndex++)await ${electronVar}.shell?.openPath?.(__codexBuildInfoPath)}catch{}}`;
 }
 
 function addLinuxBuildInfoRequestHandler(currentSource) {
-  if (currentSource.includes("\"codex-linux-show-build-info\"")) {
-    return { source: currentSource, changed: false };
+  const handler = "\"codex-linux-get-build-info\":async()=>codexLinuxGetBuildInfo(),\"codex-linux-open-build-info-commit\":async()=>codexLinuxOpenBuildInfoCommit(),\"codex-linux-show-build-info\":async()=>{await codexLinuxShowBuildInfo();return{success:!0}},";
+  const nestedHandler = `({${handler}`;
+  let patchedSource = currentSource;
+  let changed = false;
+  if (patchedSource.includes(nestedHandler)) {
+    patchedSource = patchedSource.replace(nestedHandler, "({");
+    changed = true;
+  } else if (patchedSource.includes(handler)) {
+    return { source: patchedSource, changed: false };
   }
 
   const handlerKeyIndexes = [
-    currentSource.indexOf("\"set-global-state\":async"),
-    currentSource.indexOf("\"get-global-state\":async"),
+    patchedSource.indexOf("\"set-global-state\":async"),
+    patchedSource.indexOf("\"get-global-state\":async"),
   ].filter((index) => index !== -1);
   if (handlerKeyIndexes.length === 0) {
-    return { source: currentSource, changed: false };
+    return { source: patchedSource, changed };
   }
 
   const keyIndex = Math.min(...handlerKeyIndexes);
-  const insertionIndex = currentSource.lastIndexOf("{", keyIndex);
-  if (insertionIndex === -1) {
-    return { source: currentSource, changed: false };
-  }
-
-  const handler = "\"codex-linux-get-build-info\":async()=>codexLinuxGetBuildInfo(),\"codex-linux-open-build-info-commit\":async()=>codexLinuxOpenBuildInfoCommit(),\"codex-linux-show-build-info\":async()=>{await codexLinuxShowBuildInfo();return{success:!0}},";
   return {
-    source: `${currentSource.slice(0, insertionIndex + 1)}${handler}${currentSource.slice(insertionIndex + 1)}`,
+    source: `${patchedSource.slice(0, keyIndex)}${handler}${patchedSource.slice(keyIndex)}`,
     changed: true,
   };
 }
@@ -953,6 +954,21 @@ function applyLinuxBuildInfoTrayPatch(currentSource) {
 
   let patchedSource = currentSource;
   let changed = false;
+  if (
+    electronVar != null &&
+    patchedSource.includes(`let ${electronVar}=await ${electronVar}.dialog?.showMessageBox`)
+  ) {
+    patchedSource = patchedSource
+      .replace(
+        `let ${electronVar}=await ${electronVar}.dialog?.showMessageBox`,
+        `let __codexBuildInfoBoxResponse=await ${electronVar}.dialog?.showMessageBox`,
+      )
+      .replaceAll(
+        `&&${electronVar}?.response===`,
+        "&&__codexBuildInfoBoxResponse?.response===",
+      );
+    changed = true;
+  }
   const trayMenuRegex = /getNativeTrayMenuItems\(\)\{[^]*?return\[/g;
   const classRegex = /var [A-Za-z_$][\w$]*=class\{[^]*?getNativeTrayMenuItems\(\)\{[^]*?return\[/;
   const helpMenuPattern = /\{role:`help`,id:[A-Za-z_$][\w$]*\.bn\.help,submenu:\[/;

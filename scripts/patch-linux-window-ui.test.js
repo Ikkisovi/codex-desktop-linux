@@ -1738,6 +1738,30 @@ test("adds Linux build information request handlers for renderer settings", () =
   );
 });
 
+test("Linux build information helper locals do not shadow minified module bindings", () => {
+  const source =
+    "let a=require(`electron`),l=require(`node:fs`),s=require(`node:path`),e={bn:{help:`help`}};const h={\"get-global-state\":async({key:a})=>({value:this.globalState.get(a)}),\"set-global-state\":async({key:a,value:b,origin:c})=>(this.setGlobalStateValue(a,b,c),{success:!0})};let $e=[{role:`help`,id:e.bn.help,submenu:[{label:`Codex Documentation`,click:()=>{a.shell.openExternal(`https://developers.openai.com/codex/app`)}}]}],et=a.Menu.buildFromTemplate($e);a.Menu.setApplicationMenu(et);";
+  const patched = applyPatchTwice(applyLinuxBuildInfoTrayPatch, source);
+
+  assert.match(patched, /await a\.dialog\?\.showMessageBox/);
+  assert.match(patched, /\(0,s\.join\)\(process\.resourcesPath/);
+  assert.match(patched, /l\.existsSync\(__codexBuildInfoPath\)/);
+  assert.doesNotMatch(patched, /let a=await a\.dialog/);
+  assert.doesNotMatch(patched, /let s=\[\]/);
+});
+
+test("Linux build information request handlers are inserted into the handler table", () => {
+  const source =
+    "let a=require(`electron`),l=require(`node:fs`),s=require(`node:path`),e={bn:{help:`help`}};const h={\"is-copilot-api-available\":async()=>({available:!1}),\"get-global-state\":async({key:e})=>({value:this.globalState.get(e)}),\"set-global-state\":async({key:e,value:t,origin:n})=>(this.setGlobalStateValue(e,t,n),{success:!0})};let $e=[{role:`help`,id:e.bn.help,submenu:[{label:`Codex Documentation`,click:()=>{a.shell.openExternal(`https://developers.openai.com/codex/app`)}}]}],et=a.Menu.buildFromTemplate($e);a.Menu.setApplicationMenu(et);";
+  const patched = applyPatchTwice(applyLinuxBuildInfoTrayPatch, source);
+
+  assert.match(
+    patched,
+    /"is-copilot-api-available":async\(\)=>\(\{available:!1\}\),"codex-linux-get-build-info":async\(\)=>codexLinuxGetBuildInfo\(\),"codex-linux-open-build-info-commit"/,
+  );
+  assert.doesNotMatch(patched, /"is-copilot-api-available":async\(\)=>\(\{"codex-linux-get-build-info"/);
+});
+
 test("adds Linux build information to current tray menu shape", () => {
   const patched = applyPatchTwice(applyLinuxBuildInfoTrayPatch, `${mainBundlePrefix}${currentTrayMenuBundleFixture()}`);
 
