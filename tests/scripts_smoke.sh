@@ -3110,6 +3110,7 @@ SCRIPT
 
     assert_file_exists "$workspace/work/.v8-nullptr-fix.h"
     assert_file_exists "$workspace/work/.cxx-v8-nullptr"
+    assert_contains "$workspace/work/.cxx-v8-nullptr" "#!/usr/bin/env bash"
     assert_contains "$workspace/work/.v8-nullptr-fix.h" "using std::nullptr_t;"
     assert_contains "$cxx_state" "CXX=$workspace/work/.cxx-v8-nullptr"
     assert_contains "$cxx_log" "-include"
@@ -4903,7 +4904,7 @@ if (!result.event.prevented || result.state.hideCalls !== 1) {
 NODE
 
     node "$REPO_DIR/scripts/patch-linux-window-ui.js" "$extracted" >"$output_log" 2>&1
-    assert_occurrence_count "$extracted/.vite/build/main-test.js" 'process.platform!==`linux`' '1'
+    assert_occurrence_count "$extracted/.vite/build/main-test.js" 'process.platform!==`win32`&&process.platform!==`darwin`&&process.platform!==`linux`?null:' '1'
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'nativeImage.createFromPath(process.resourcesPath' '3'
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'nativeImage.createFromPath(process.resourcesPath+`/../.codex-linux/codex-desktop-tray.png`)' '1'
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'nativeImage.createFromPath(process.resourcesPath+`/../.codex-linux/codex-desktop.png`)' '1'
