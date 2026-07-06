@@ -307,6 +307,7 @@ Full list: [Troubleshooting](docs/troubleshooting.md).
 - [Linux Features architecture](docs/linux-features-architecture.md)
 - [Wayland input focus investigation](docs/wayland-input-focus-investigation.md)
 - [Webview server evaluation](docs/webview-server-evaluation.md)
+- [Launcher performance notes](docs/launcher-performance.md)
 
 ## Disclaimer
 

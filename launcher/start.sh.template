@@ -247,10 +247,13 @@ Environment:
                               or force native Wayland with GPU compositing enabled
   CODEX_ELECTRON_DISABLE_GPU_COMPOSITING=0|1
                               Override Wayland side-panel compositing workaround; 1 forces and 0 disables
+  CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=auto|0|1
+                              Override --disable-dev-shm-usage; auto keeps it only when /dev/shm is missing or small
   CODEX_LAUNCHER_LOCK_WAIT_SECONDS=N
                               Seconds to wait for another launcher to leave the startup lock (default: 5)
   CODEX_FORCE_RENDERER_ACCESSIBILITY=auto|0|1
-                              Override --force-renderer-accessibility; auto skips it under WSLg and wayland-gpu
+                              Override --force-renderer-accessibility; auto forces it only when assistive
+                              technology is detected and never under WSLg or native wayland-gpu
   CODEX_MULTI_LAUNCH=1        Treat normal launches like --new-instance
   CODEX_MULTI_LAUNCH_PORT_RANGE=START-END
                               Port allocation range for --new-instance (default: CODEX_WEBVIEW_PORT through +4)
@@ -2675,6 +2678,56 @@ apply_electron_rendering_profile() {
     fi
 }
 
+# --disable-dev-shm-usage exists for containers whose /dev/shm is too small
+# for Chromium's renderer/GPU shared-memory transport (Docker defaults to
+# 64 MiB). Everywhere else the flag pushes those buffers onto disk-backed
+# temp storage and hurts rendering performance, so it is only kept when
+# /dev/shm is missing, not writable, or below 1 GiB.
+dev_shm_size_kb() {
+    local size_kb
+    size_kb="$(df -Pk /dev/shm 2>/dev/null | awk 'NR == 2 { print $2 }')"
+    case "$size_kb" in
+        ""|*[!0-9]*)
+            return 1
+            ;;
+    esac
+    printf '%s\n' "$size_kb"
+}
+
+should_disable_dev_shm_usage() {
+    local min_size_kb=1048576 size_kb
+
+    if [ -n "${CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE:-}" ]; then
+        if truthy_env_value "$CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE"; then
+            return 0
+        fi
+        if falsey_env_value "$CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE"; then
+            return 1
+        fi
+        case "$CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE" in
+            auto|AUTO|Auto) ;;
+            *)
+                echo "Invalid CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE='${CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE:-}'; using automatic /dev/shm detection" >&2
+                ;;
+        esac
+    fi
+
+    if [ ! -d /dev/shm ] || [ ! -w /dev/shm ]; then
+        return 0
+    fi
+
+    if ! size_kb="$(dev_shm_size_kb)"; then
+        return 0
+    fi
+
+    if [ "$size_kb" -lt "$min_size_kb" ]; then
+        echo "Detected small /dev/shm (${size_kb} KiB); keeping --disable-dev-shm-usage. Set CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=0 to opt out."
+        return 0
+    fi
+
+    return 1
+}
+
 should_disable_gpu_compositing() {
     if [ "$ELECTRON_GPU_COMPOSITING_SWITCH_PROVIDED" -eq 1 ]; then
         return 0
@@ -2711,6 +2764,117 @@ effective_electron_ozone_platform() {
     fi
 }
 
+# --force-renderer-accessibility keeps Chromium's accessibility engine active
+# in every renderer, so each DOM update also rebuilds and serializes the
+# accessibility tree — a measurable slowdown for the complex webview UI. Only
+# pay that cost when an assistive technology is plausibly in use; anything
+# missed by this detection can set CODEX_FORCE_RENDERER_ACCESSIBILITY=1.
+assistive_technology_detected() {
+    local env_marker
+
+    for env_marker in "${GNOME_ACCESSIBILITY:-}" "${QT_LINUX_ACCESSIBILITY_ALWAYS_ON:-}" "${ACCESSIBILITY_ENABLED:-}"; do
+        if truthy_env_value "$env_marker"; then
+            return 0
+        fi
+    done
+
+    if command -v pgrep >/dev/null 2>&1; then
+        if pgrep -x orca >/dev/null 2>&1 || pgrep -x brltty >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    session_bus_assistive_technology_detected
+}
+
+# Session-bus accessibility signals: the GNOME screen-reader setting plus the
+# AT-SPI state that `codex-computer-use-linux setup` enables (org.a11y.Status
+# IsEnabled via busctl, with org.gnome.desktop.interface toolkit-accessibility
+# as its gsettings fallback). gsettings/busctl can hang on a broken session
+# bus, so each external helper runs under a watchdog capped at 0.5 s. When
+# setsid is available the watchdog kills the helper process group, which keeps
+# shell stubs and helper descendants from surviving launch. A killed or failing
+# probe counts as "not detected" and never blocks launch.
+SESSION_BUS_PROBE_OUTPUT=""
+
+session_bus_probe_command() {
+    local output_file probe_pid kill_pid rc=1 self_pid use_process_group=0
+
+    SESSION_BUS_PROBE_OUTPUT=""
+    output_file="$(mktemp "${TMPDIR:-/tmp}/codex-session-bus-probe.XXXXXX")" || return 1
+    self_pid=${BASHPID:-$$}
+
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "$@" >"$output_file" 2>/dev/null &
+        use_process_group=1
+    else
+        "$@" >"$output_file" 2>/dev/null &
+    fi
+    probe_pid=$!
+
+    ( trap - EXIT
+      sleep 0.5
+      [ -r "/proc/$probe_pid/stat" ] || exit 0
+      # /proc/<pid>/stat: "<pid> (comm) <state> <ppid> ..." — comm can contain
+      # spaces/parens, so strip up to the last ") " before splitting fields.
+      local stat_line rest
+      stat_line=$(< "/proc/$probe_pid/stat") || exit 0
+      rest=${stat_line##*) }
+      set -- $rest
+      # $1 = state, $2 = ppid
+      [ "${2:-}" = "$self_pid" ] || exit 0
+      if [ "$use_process_group" -eq 1 ]; then
+          kill -TERM "-$probe_pid" 2>/dev/null || kill -TERM "$probe_pid" 2>/dev/null || true
+          sleep 0.1
+          kill -KILL "-$probe_pid" 2>/dev/null || kill -KILL "$probe_pid" 2>/dev/null || true
+      else
+          kill -TERM "$probe_pid" 2>/dev/null || true
+          sleep 0.1
+          kill -KILL "$probe_pid" 2>/dev/null || true
+      fi
+    ) 2>/dev/null &
+    kill_pid=$!
+
+    if wait "$probe_pid" 2>/dev/null; then
+        rc=0
+    else
+        rc=$?
+    fi
+    kill "$kill_pid" 2>/dev/null || true
+    wait "$kill_pid" 2>/dev/null || true
+
+    if [ "$rc" -eq 0 ] && [ -r "$output_file" ]; then
+        SESSION_BUS_PROBE_OUTPUT="$(< "$output_file")"
+    fi
+    rm -f "$output_file"
+    return "$rc"
+}
+
+session_bus_assistive_technology_detected() {
+    if command -v gsettings >/dev/null 2>&1; then
+        if session_bus_probe_command gsettings get org.gnome.desktop.a11y.applications screen-reader-enabled; then
+            case "$SESSION_BUS_PROBE_OUTPUT" in
+                true) return 0 ;;
+            esac
+        fi
+        if session_bus_probe_command gsettings get org.gnome.desktop.interface toolkit-accessibility; then
+            case "$SESSION_BUS_PROBE_OUTPUT" in
+                true) return 0 ;;
+            esac
+        fi
+    fi
+
+    if command -v busctl >/dev/null 2>&1; then
+        if session_bus_probe_command busctl --user get-property org.a11y.Bus /org/a11y/bus org.a11y.Status IsEnabled; then
+            case "$SESSION_BUS_PROBE_OUTPUT" in
+                "b true") return 0 ;;
+            esac
+        fi
+    fi
+
+    return 1
+}
+
 should_force_renderer_accessibility() {
     local effective_platform
 
@@ -2736,11 +2900,10 @@ should_force_renderer_accessibility() {
         wayland-gpu)
             effective_platform="$(effective_electron_ozone_platform)"
             [ "$effective_platform" = "wayland" ] && return 1
-            return 0
             ;;
     esac
 
-    return 0
+    assistive_technology_detected
 }
 
 set_electron_defaults() {
@@ -2757,6 +2920,7 @@ set_electron_defaults() {
     ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS=0
     ELECTRON_GPU_COMPOSITING_DISABLED=0
     ELECTRON_GPU_COMPOSITING_SWITCH_PROVIDED=0
+    ELECTRON_DEV_SHM_USAGE_DISABLED=0
     ELECTRON_RENDERER_ACCESSIBILITY_FORCED=0
     ELECTRON_SCALE_SWITCH_IN_ARGS=0
     ELECTRON_FORCED_SCALE_FACTOR=""
@@ -3041,9 +3205,15 @@ build_electron_launch_args() {
         --no-sandbox
         --class="$CODEX_LINUX_APP_ID"
         --app-id="$CODEX_LINUX_APP_ID"
-        --disable-dev-shm-usage
         --disable-gpu-sandbox
     )
+
+    if should_disable_dev_shm_usage; then
+        ELECTRON_LAUNCH_ARGS+=(--disable-dev-shm-usage)
+        ELECTRON_DEV_SHM_USAGE_DISABLED=1
+    else
+        ELECTRON_DEV_SHM_USAGE_DISABLED=0
+    fi
 
     if should_disable_gpu_compositing; then
         ELECTRON_LAUNCH_ARGS+=(--disable-gpu-compositing)
@@ -3270,7 +3440,7 @@ launch_electron() {
 
     if [ "$WARM_START" -eq 1 ]; then
         release_launcher_lock
-        echo "Electron warm-start handoff: pid=$RUNNING_APP_PID rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED forced_scale=${ELECTRON_FORCED_SCALE_FACTOR:-none}"
+        echo "Electron warm-start handoff: pid=$RUNNING_APP_PID rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED dev_shm_usage_disabled=$ELECTRON_DEV_SHM_USAGE_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED forced_scale=${ELECTRON_FORCED_SCALE_FACTOR:-none}"
         if [ "$ELECTRON_GPU_COMPOSITING_DISABLED" = "0" ] && [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
             echo "Rendering hint: if the side panel flickers or appears transparent on Wayland, retry with CODEX_ELECTRON_DISABLE_GPU_COMPOSITING=1"
         fi
@@ -3279,7 +3449,7 @@ launch_electron() {
         return $?
     fi
 
-    echo "Electron launch mode: rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED forced_scale=${ELECTRON_FORCED_SCALE_FACTOR:-none}"
+    echo "Electron launch mode: rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED dev_shm_usage_disabled=$ELECTRON_DEV_SHM_USAGE_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED forced_scale=${ELECTRON_FORCED_SCALE_FACTOR:-none}"
     if [ "$ELECTRON_GPU_COMPOSITING_DISABLED" = "0" ] && [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
         echo "Rendering hint: if the side panel flickers or appears transparent on Wayland, retry with CODEX_ELECTRON_DISABLE_GPU_COMPOSITING=1"
     fi
