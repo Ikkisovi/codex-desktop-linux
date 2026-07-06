@@ -229,12 +229,19 @@ Options:
   --enable-gpu                Re-enable Electron GPU acceleration
   --x11                       Force X11/XWayland
   --wayland                   Force native Wayland
+  --diagnose-scaling          Print display/session scaling diagnostics and exit
 
 Default launch keeps Electron GPU enabled and lets Electron choose the platform.
 Extra flags are passed directly to Electron.
 Persistent launch flags: $USER_ELECTRON_FLAGS_FILE
 
 Environment:
+  CODEX_OZONE_PLATFORM=x11|wayland|auto
+                              Select the Chromium Ozone backend without editing flags;
+                              explicit --x11/--wayland/--ozone-platform* flags win
+  CODEX_FORCE_DEVICE_SCALE_FACTOR=N
+                              Pass --force-device-scale-factor=N to Electron (e.g. 1, 1.5, 2);
+                              use 1 if the UI is oversized on HiDPI/fractional-scaling setups
   CODEX_LINUX_RENDERING_MODE=auto|default|wslg|wayland-gpu
                               Auto-detect WSLg, keep generic Linux defaults, force the WSLg profile,
                               or force native Wayland with GPU compositing enabled
@@ -266,7 +273,18 @@ else
     LAUNCHER_EARLY_STDERR_FD=""
 fi
 
-exec >>"$LOG_FILE" 2>&1
+LAUNCHER_DIAGNOSE_SCALING=0
+if [[ "${LAUNCHER_ARGS[0]:-}" == "--diagnose-scaling" ]]; then
+    # Diagnostics are read interactively; keep them on the terminal instead
+    # of the launcher log. The early-stderr capture above left fd 2 on
+    # /dev/null, so point it back at the saved terminal stderr.
+    LAUNCHER_DIAGNOSE_SCALING=1
+    if [ -n "${LAUNCHER_EARLY_STDERR_FD:-}" ]; then
+        exec 2>&"$LAUNCHER_EARLY_STDERR_FD"
+    fi
+else
+    exec >>"$LOG_FILE" 2>&1
+fi
 
 echo "[$(date -Is)] Starting $CODEX_LINUX_APP_DISPLAY_NAME launcher"
 if [ "$MULTI_LAUNCH_ACTIVE" -eq 1 ]; then
@@ -2456,6 +2474,47 @@ scan_electron_rendering_arg() {
         --disable-gpu-compositing|--disable-gpu-compositing=*)
             ELECTRON_GPU_COMPOSITING_SWITCH_PROVIDED=1
             ;;
+        --force-device-scale-factor|--force-device-scale-factor=*)
+            ELECTRON_SCALE_SWITCH_IN_ARGS=1
+            ;;
+    esac
+}
+
+codex_forced_device_scale_factor() {
+    local value="${CODEX_FORCE_DEVICE_SCALE_FACTOR:-}"
+
+    [ -n "$value" ] || return 1
+    if [[ ! "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || [[ "$value" =~ ^0+(\.0+)?$ ]]; then
+        echo "Invalid CODEX_FORCE_DEVICE_SCALE_FACTOR='$value'; expected a positive number like 1, 1.25, or 2" >&2
+        return 1
+    fi
+
+    printf '%s\n' "$value"
+}
+
+apply_codex_ozone_platform_env() {
+    local value="${CODEX_OZONE_PLATFORM:-}"
+
+    [ -n "$value" ] || return 0
+    if [ "$ELECTRON_PLATFORM_EXPLICIT" -eq 1 ] || [ "$ELECTRON_OZONE_SWITCH_IN_ARGS" -eq 1 ]; then
+        echo "Ignoring CODEX_OZONE_PLATFORM='$value'; an explicit platform flag was provided"
+        return 0
+    fi
+
+    case "$value" in
+        x11|wayland)
+            ELECTRON_OZONE_PLATFORM="$value"
+            ELECTRON_OZONE_HINT=""
+            ELECTRON_PLATFORM_EXPLICIT=1
+            ;;
+        auto)
+            ELECTRON_OZONE_PLATFORM=""
+            ELECTRON_OZONE_HINT="auto"
+            ELECTRON_PLATFORM_EXPLICIT=1
+            ;;
+        *)
+            echo "Invalid CODEX_OZONE_PLATFORM='$value'; expected x11, wayland, or auto" >&2
+            ;;
     esac
 }
 
@@ -2527,6 +2586,10 @@ write_user_electron_flags_template() {
 #
 # Wayland decorations:
 # --enable-features=WaylandWindowDecorations
+#
+# HiDPI / fractional scaling (oversized or blurry UI):
+# --force-device-scale-factor=1
+# --force-device-scale-factor=1.5
 EOF
 }
 
@@ -2695,6 +2758,8 @@ set_electron_defaults() {
     ELECTRON_GPU_COMPOSITING_DISABLED=0
     ELECTRON_GPU_COMPOSITING_SWITCH_PROVIDED=0
     ELECTRON_RENDERER_ACCESSIBILITY_FORCED=0
+    ELECTRON_SCALE_SWITCH_IN_ARGS=0
+    ELECTRON_FORCED_SCALE_FACTOR=""
     ELECTRON_ARGS=()
     ELECTRON_ENABLE_FEATURES=()
     local passthrough=0
@@ -2782,6 +2847,19 @@ set_electron_defaults() {
         echo "Detected Sommelier (SOMMELIER_VERSION=$SOMMELIER_VERSION); forcing --ozone-platform=x11 (Wayland windows are not visible under ChromeOS Crostini)"
     fi
 
+    # Session-level operator overrides for HiDPI / fractional-scaling issues.
+    # Explicit launcher/Electron flags still win over both env vars.
+    apply_codex_ozone_platform_env
+    if [ -n "${CODEX_FORCE_DEVICE_SCALE_FACTOR:-}" ]; then
+        if [ "$ELECTRON_SCALE_SWITCH_IN_ARGS" -eq 1 ]; then
+            echo "Ignoring CODEX_FORCE_DEVICE_SCALE_FACTOR; an explicit --force-device-scale-factor flag was provided"
+        elif ELECTRON_FORCED_SCALE_FACTOR="$(codex_forced_device_scale_factor)"; then
+            :
+        else
+            ELECTRON_FORCED_SCALE_FACTOR=""
+        fi
+    fi
+
     apply_electron_rendering_profile
 }
 
@@ -2821,18 +2899,61 @@ apply_feature_launcher_hook_env() {
     export "$name"
 }
 
+# Remove entries from ELECTRON_ARGS whose switch name (the part before '=')
+# matches one of the given switches, logging each drop against the new arg
+# that supersedes it.
+remove_superseded_electron_args() {
+    local new_arg="$1"
+    shift
+    local -a kept=()
+    local arg name switch dropped
+
+    for arg in "${ELECTRON_ARGS[@]}"; do
+        name="${arg%%=*}"
+        dropped=0
+        for switch in "$@"; do
+            if [ "$name" = "$switch" ]; then
+                echo "Dropping earlier Electron arg '$arg'; a launcher hook supplied '$new_arg'"
+                dropped=1
+                break
+            fi
+        done
+        [ "$dropped" -eq 1 ] || kept+=("$arg")
+    done
+
+    ELECTRON_ARGS=("${kept[@]}")
+}
+
 apply_feature_launcher_hook_electron_arg() {
     local arg="$1"
+    local switch
 
     case "$arg" in
         --enable-features=*)
             add_electron_enable_features "${arg#--enable-features=}"
-            ;;
-        *)
-            ELECTRON_ARGS+=("$arg")
-            scan_electron_rendering_arg "$arg"
+            return 0
             ;;
     esac
+
+    # Launcher hooks run last, after feature electron-args, the persistent
+    # flags file, and pass-through CLI args have all been collected into
+    # ELECTRON_ARGS. Chromium already resolves repeated switches last-wins, so
+    # replace any earlier occurrence of the same switch instead of appending a
+    # conflicting duplicate to the final argv. --ozone-platform and
+    # --ozone-platform-hint are one family: an explicit platform supersedes an
+    # earlier hint and vice versa.
+    switch="${arg%%=*}"
+    case "$switch" in
+        --ozone-platform|--ozone-platform-hint)
+            remove_superseded_electron_args "$arg" --ozone-platform --ozone-platform-hint
+            ;;
+        *)
+            remove_superseded_electron_args "$arg" "$switch"
+            ;;
+    esac
+
+    ELECTRON_ARGS+=("$arg")
+    scan_electron_rendering_arg "$arg"
 }
 
 run_feature_launcher_hooks() {
@@ -2894,6 +3015,28 @@ run_feature_launcher_hooks() {
 build_electron_launch_args() {
     local enable_features_arg
 
+    # Feature launcher hooks (runtimeHooks.launcher) run after
+    # set_electron_defaults() has already chosen the Ozone platform and device
+    # scale factor -- whether from CODEX_OZONE_PLATFORM /
+    # CODEX_FORCE_DEVICE_SCALE_FACTOR, the CODEX_LINUX_RENDERING_MODE profile
+    # (wayland-gpu / wslg), or the Sommelier X11 fallback. If such a hook then
+    # emits an explicit --ozone-platform / --force-device-scale-factor, both the
+    # launcher-computed flag and the hook flag would land in the final Electron
+    # argv (and a launcher-selected Wayland platform would still add
+    # WaylandWindowDecorations below). Pass-through CLI args are scanned before
+    # those defaults are computed and already suppress them; hook args are
+    # scanned afterward, so drop the launcher-computed value here whenever any
+    # explicit override reached the Electron args, so the hook flag wins cleanly.
+    if [ -n "$ELECTRON_OZONE_PLATFORM" ] && [ "$ELECTRON_OZONE_SWITCH_IN_ARGS" -eq 1 ]; then
+        echo "Dropping launcher-selected --ozone-platform=$ELECTRON_OZONE_PLATFORM; an explicit --ozone-platform arg overrides it"
+        ELECTRON_OZONE_PLATFORM=""
+        ELECTRON_OZONE_HINT=""
+    fi
+    if [ -n "$ELECTRON_FORCED_SCALE_FACTOR" ] && [ "$ELECTRON_SCALE_SWITCH_IN_ARGS" -eq 1 ]; then
+        echo "Dropping launcher-selected --force-device-scale-factor=$ELECTRON_FORCED_SCALE_FACTOR; an explicit --force-device-scale-factor arg overrides it"
+        ELECTRON_FORCED_SCALE_FACTOR=""
+    fi
+
     ELECTRON_LAUNCH_ARGS=(
         --no-sandbox
         --class="$CODEX_LINUX_APP_ID"
@@ -2921,6 +3064,10 @@ build_electron_launch_args() {
         ELECTRON_LAUNCH_ARGS+=(--ozone-platform-hint="$ELECTRON_OZONE_HINT")
     fi
 
+    if [ -n "$ELECTRON_FORCED_SCALE_FACTOR" ]; then
+        ELECTRON_LAUNCH_ARGS+=(--force-device-scale-factor="$ELECTRON_FORCED_SCALE_FACTOR")
+    fi
+
     if [ "$ELECTRON_GPU_ENABLED" != "1" ]; then
         ELECTRON_LAUNCH_ARGS+=(--disable-gpu --disable-features=Vulkan)
     fi
@@ -2940,6 +3087,72 @@ build_electron_launch_args() {
         ELECTRON_LAUNCH_ARGS+=("$enable_features_arg")
     fi
 
+}
+
+print_scaling_diagnostics() {
+    local key arg
+
+    echo "$CODEX_LINUX_APP_DISPLAY_NAME scaling diagnostics"
+    echo ""
+    echo "Session environment:"
+    for key in XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP WAYLAND_DISPLAY DISPLAY \
+        GDK_BACKEND GDK_SCALE GDK_DPI_SCALE QT_SCALE_FACTOR QT_AUTO_SCREEN_SCALE_FACTOR \
+        ELECTRON_OZONE_PLATFORM_HINT CODEX_OZONE_PLATFORM CODEX_FORCE_DEVICE_SCALE_FACTOR \
+        CODEX_LINUX_RENDERING_MODE; do
+        printf '  %s=%s\n' "$key" "${!key:-<unset>}"
+    done
+
+    echo ""
+    echo "GNOME settings:"
+    if command -v gsettings >/dev/null 2>&1; then
+        printf '  org.gnome.desktop.interface scaling-factor: %s\n' \
+            "$(gsettings get org.gnome.desktop.interface scaling-factor 2>/dev/null || echo unavailable)"
+        printf '  org.gnome.desktop.interface text-scaling-factor: %s\n' \
+            "$(gsettings get org.gnome.desktop.interface text-scaling-factor 2>/dev/null || echo unavailable)"
+        printf '  org.gnome.mutter experimental-features: %s\n' \
+            "$(gsettings get org.gnome.mutter experimental-features 2>/dev/null || echo unavailable)"
+    else
+        echo "  gsettings not available"
+    fi
+
+    echo ""
+    echo "X resources (on X11/XWayland Chromium derives its scale from Xft.dpi / 96, GDK_SCALE, and GDK_DPI_SCALE):"
+    if [ -n "${DISPLAY:-}" ] && command -v xrdb >/dev/null 2>&1; then
+        xrdb -query 2>/dev/null | grep -i 'Xft.dpi' | sed 's/^/  /' \
+            || echo "  Xft.dpi not set (Chromium assumes 96 dpi = scale 1)"
+    else
+        echo "  unavailable (no DISPLAY or xrdb missing)"
+    fi
+
+    echo ""
+    echo "Monitors:"
+    if [ -n "${DISPLAY:-}" ] && command -v xrandr >/dev/null 2>&1; then
+        xrandr --listmonitors 2>/dev/null | sed 's/^/  /' || echo "  xrandr query failed"
+    else
+        echo "  xrandr unavailable"
+    fi
+
+    echo ""
+    echo "Electron runtime:"
+    printf '  electron: %s\n' "$(cat "$SCRIPT_DIR/version" 2>/dev/null || echo unknown)"
+    printf '  binary: %s\n' "$SCRIPT_DIR/electron"
+
+    echo ""
+    echo "Computed Electron launch flags (feature launcher hooks are not executed here):"
+    load_feature_electron_args
+    load_user_electron_flags
+    set_electron_defaults "${FEATURE_ELECTRON_ARGS[@]}" "${USER_ELECTRON_FLAGS[@]}" "${LAUNCHER_ARGS[@]:1}"
+    build_electron_launch_args
+    for arg in "${ELECTRON_LAUNCH_ARGS[@]}" "${ELECTRON_ARGS[@]}"; do
+        printf '  %s\n' "$arg"
+    done
+
+    echo ""
+    echo "If the UI is oversized or blurry, try:"
+    echo "  CODEX_FORCE_DEVICE_SCALE_FACTOR=1 <launch command>"
+    echo "  CODEX_OZONE_PLATFORM=x11 <launch command>"
+    echo "  CODEX_OZONE_PLATFORM=wayland <launch command>"
+    echo "See docs/troubleshooting.md (Oversized or blurry UI) for details."
 }
 
 configure_side_by_side_app_env() {
@@ -3057,7 +3270,7 @@ launch_electron() {
 
     if [ "$WARM_START" -eq 1 ]; then
         release_launcher_lock
-        echo "Electron warm-start handoff: pid=$RUNNING_APP_PID rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED"
+        echo "Electron warm-start handoff: pid=$RUNNING_APP_PID rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED forced_scale=${ELECTRON_FORCED_SCALE_FACTOR:-none}"
         if [ "$ELECTRON_GPU_COMPOSITING_DISABLED" = "0" ] && [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
             echo "Rendering hint: if the side panel flickers or appears transparent on Wayland, retry with CODEX_ELECTRON_DISABLE_GPU_COMPOSITING=1"
         fi
@@ -3066,7 +3279,7 @@ launch_electron() {
         return $?
     fi
 
-    echo "Electron launch mode: rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED"
+    echo "Electron launch mode: rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED forced_scale=${ELECTRON_FORCED_SCALE_FACTOR:-none}"
     if [ "$ELECTRON_GPU_COMPOSITING_DISABLED" = "0" ] && [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
         echo "Rendering hint: if the side panel flickers or appears transparent on Wayland, retry with CODEX_ELECTRON_DISABLE_GPU_COMPOSITING=1"
     fi
@@ -3098,6 +3311,10 @@ export_feature_runtime_env
 load_packaged_runtime_helper
 prepend_managed_node_runtime_to_path
 source_feature_env_files
+if [ "$LAUNCHER_DIAGNOSE_SCALING" -eq 1 ]; then
+    print_scaling_diagnostics
+    exit 0
+fi
 register_url_scheme_handlers
 log_phase "initial_launch_state_refresh_start"
 refresh_launch_state

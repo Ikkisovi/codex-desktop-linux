@@ -11,6 +11,7 @@
 | `gh auth status` works in terminal but fails inside Codex Desktop | See [GitHub CLI auth in app-launched shells](github-cli-auth.md) |
 | Electron hangs while CLI is outdated | Re-run the launcher and check `~/.cache/codex-desktop/launcher.log` plus `~/.local/state/codex-update-manager/service.log` |
 | GPU / Vulkan / Wayland errors | Try `CODEX_LINUX_RENDERING_MODE=wayland-gpu ./codex-app/start.sh` or persistent launch flags below |
+| UI massively oversized, tiny, or blurry | See [Oversized or blurry UI](#oversized-or-blurry-ui-hidpi--fractional-scaling); quick fix: `CODEX_FORCE_DEVICE_SCALE_FACTOR=1 ./codex-app/start.sh` |
 | Window flickering, resize ghosting, or stale frame trails | Try `CODEX_ELECTRON_DISABLE_GPU_COMPOSITING=1 ./codex-app/start.sh`, then `./codex-app/start.sh --disable-gpu` if needed |
 | Transparent or dark left sidebar | Check whether the Linux opaque-window patch was applied, then rebuild with a current checkout |
 | Sandbox errors | The launcher already sets `--no-sandbox` |
@@ -52,6 +53,77 @@ For native Wayland IME setups, try:
 
 Restart Codex Desktop after changing this file. Warm-start launches reuse the
 running Electron process and will not pick up new flags.
+
+## Oversized Or Blurry UI (HiDPI / Fractional Scaling)
+
+If the whole Codex UI renders far too large (or too small/blurry) inside its
+window while other apps scale normally, Electron picked a wrong device scale
+factor for your display setup. Chromium computes the scale differently per
+backend: under native Wayland it uses the compositor's monitor scale, while
+under X11/XWayland it derives the scale from `Xft.dpi` (dpi / 96), `GDK_SCALE`,
+and `GDK_DPI_SCALE`. On GNOME Wayland sessions with fractional scaling or
+XWayland native scaling enabled, those two views can disagree — the compositor
+scales the window buffer and Chromium applies its own scale on top, so the UI
+ends up double-scaled (oversized) or unscaled (tiny/blurry).
+
+First inspect what the launcher and your session report:
+
+```bash
+./codex-app/start.sh --diagnose-scaling          # local build
+/opt/codex-desktop/start.sh --diagnose-scaling   # native package install
+```
+
+It prints the session type, scaling-related environment variables, GNOME
+`scaling-factor` / `text-scaling-factor`, `Xft.dpi`, monitor layout, and the
+exact Electron flags a launch would use.
+
+One-line workarounds (quit the app fully first — warm starts reuse the
+running process and ignore new flags):
+
+```bash
+# Force a specific device scale factor (1 = unscaled; 1.5, 2, ... also work)
+CODEX_FORCE_DEVICE_SCALE_FACTOR=1 codex-desktop
+
+# Force the X11/XWayland backend instead of native Wayland
+CODEX_OZONE_PLATFORM=x11 codex-desktop
+
+# Force native Wayland (best for fractional scaling on current GNOME)
+CODEX_OZONE_PLATFORM=wayland codex-desktop
+```
+
+For a local self-build, replace `codex-desktop` with `./codex-app/start.sh`.
+Explicit launcher flags (`--x11`, `--wayland`, `--ozone-platform=*`,
+`--force-device-scale-factor=*`) always win over these environment variables.
+
+To make the fix persistent, uncomment the matching flag in
+`~/.config/codex-desktop/electron-flags.conf`:
+
+```text
+--force-device-scale-factor=1
+```
+
+or edit the desktop launcher: copy
+`/usr/share/applications/codex-desktop.desktop` to
+`~/.local/share/applications/` and prepend the variable to the `Exec` line:
+
+```text
+Exec=env CODEX_FORCE_DEVICE_SCALE_FACTOR=1 BAMF_DESKTOP_FILE_HINT=... /usr/bin/codex-desktop %u
+```
+
+Ubuntu GNOME notes:
+
+- With plain 100% or 200% scaling in Settings → Displays, the defaults work;
+  do not force anything.
+- Fractional scaling (125%/150%/175%) is a Mutter experimental feature
+  (`scale-monitor-framebuffer`). If the UI is oversized there, try
+  `CODEX_OZONE_PLATFORM=wayland` first; if it is blurry instead, try
+  `CODEX_FORCE_DEVICE_SCALE_FACTOR` matching your monitor scale (e.g. `1.5`).
+- On GNOME 47+ the `xwayland-native-scaling` experimental feature changes how
+  XWayland apps are scaled; if you enabled it and Codex looks double-scaled
+  under `CODEX_OZONE_PLATFORM=x11`, either disable that feature or run the
+  app on native Wayland.
+- "Large Text" (accessibility) only sets `text-scaling-factor` and affects
+  fonts, not the window scale; `--diagnose-scaling` shows both values.
 
 ## Authenticated HTTP Proxies
 
