@@ -560,9 +560,26 @@ function modeString(mode) {
 function enabledLinuxFeatureInstallPlan(options = {}) {
   const resources = [];
   const runtimeHooks = [];
+  const installTargetOwners = new Map([
+    [STAGED_FEATURE_MANIFEST_RELATIVE_PATH, "Linux feature staging framework"],
+  ]);
+  const claimInstallTarget = (target, owner) => {
+    for (const [existingTarget, existingOwner] of installTargetOwners) {
+      const duplicate = target === existingTarget;
+      const overlap = duplicate
+        || target.startsWith(`${existingTarget}/`)
+        || existingTarget.startsWith(`${target}/`);
+      if (overlap) {
+        const kind = duplicate ? "Duplicate" : "Overlapping";
+        throw new Error(`${kind} Linux feature install target '${target}': ${owner} conflicts with '${existingTarget}' from ${existingOwner}`);
+      }
+    }
+    installTargetOwners.set(target, owner);
+  };
   for (const feature of loadEnabledLinuxFeatures(options)) {
     for (const [index, resource] of normalizeEntryList(feature.manifest.resources, "resource", feature).entries()) {
       const target = normalizeInstallTarget(resource.target, feature.id);
+      claimInstallTarget(target, `resource ${index + 1} for feature '${feature.id}'`);
       resources.push({
         id: feature.id,
         source: resource.source,
@@ -583,6 +600,8 @@ function enabledLinuxFeatureInstallPlan(options = {}) {
       }
       for (const [index, entry] of normalizeEntryList(hookSpec, `runtimeHooks.${hookKey}`, feature).entries()) {
         const name = `${feature.id}-${entry.name ?? path.basename(entry.source)}`;
+        const target = [".codex-linux", runtimeHook.dir, name].join("/");
+        claimInstallTarget(target, `runtimeHooks.${hookKey} ${index + 1} for feature '${feature.id}'`);
         runtimeHooks.push({
           id: feature.id,
           key: hookKey,
@@ -590,7 +609,7 @@ function enabledLinuxFeatureInstallPlan(options = {}) {
           name,
           mode: parseFileMode(entry.mode, runtimeHook.executable ? 0o755 : 0o644),
           dir: runtimeHook.dir,
-          target: [".codex-linux", runtimeHook.dir, name].join("/"),
+          target,
           index,
         });
       }

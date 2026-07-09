@@ -35,6 +35,137 @@ function writeStagedManifest(appDir, manifest) {
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
+test("Linux feature staging rejects duplicate resource targets", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-feature-duplicate-resource-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const appDir = path.join(root, "app");
+  const preservedTarget = ".codex-linux/features/preserved/payload.txt";
+  const target = ".codex-linux/features/unsafe-link/payload.txt";
+  const { featureDir, featuresRoot } = makeFeatureRoot(root, {
+    id: "unsafe-link",
+    title: "Unsafe Link",
+    resources: [
+      { source: "first.txt", target, mode: "0644" },
+      { source: "second.txt", target, mode: "0644" },
+    ],
+  });
+  fs.writeFileSync(path.join(featureDir, "first.txt"), "first\n");
+  fs.writeFileSync(path.join(featureDir, "second.txt"), "second\n");
+  fs.mkdirSync(path.dirname(path.join(appDir, preservedTarget)), { recursive: true });
+  fs.writeFileSync(path.join(appDir, preservedTarget), "preserved\n");
+  writeStagedManifest(appDir, {
+    version: 1,
+    resources: [{ id: "preserved", type: "resource", target: preservedTarget, mode: "0644" }],
+    runtimeHooks: [],
+  });
+
+  assert.throws(
+    () => stageFeature(root, featuresRoot),
+    /duplicate Linux feature install target/i,
+  );
+  assert.equal(fs.existsSync(path.join(root, "app", target)), false);
+  assert.equal(fs.readFileSync(path.join(appDir, preservedTarget), "utf8"), "preserved\n");
+});
+
+test("Linux feature staging rejects ancestor and descendant target overlaps", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-feature-target-overlap-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const parentTarget = ".codex-linux/features/unsafe-link/payload";
+  const childTarget = `${parentTarget}/nested.txt`;
+  const { featureDir, featuresRoot } = makeFeatureRoot(root, {
+    id: "unsafe-link",
+    title: "Unsafe Link",
+    resources: [
+      { source: "payload", target: parentTarget, mode: "0644" },
+      { source: "nested.txt", target: childTarget, mode: "0644" },
+    ],
+  });
+  fs.mkdirSync(path.join(featureDir, "payload"));
+  fs.writeFileSync(path.join(featureDir, "payload", "nested.txt"), "parent\n");
+  fs.writeFileSync(path.join(featureDir, "nested.txt"), "child\n");
+
+  assert.throws(
+    () => stageFeature(root, featuresRoot),
+    /overlapping Linux feature install target/i,
+  );
+  assert.equal(fs.existsSync(path.join(root, "app", parentTarget)), false);
+});
+
+test("Linux feature staging rejects resource and runtime hook target collisions", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-feature-hook-collision-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const target = ".codex-linux/prelaunch.d/unsafe-link-hook.sh";
+  const { featureDir, featuresRoot } = makeFeatureRoot(root, {
+    id: "unsafe-link",
+    title: "Unsafe Link",
+    resources: [
+      { source: "payload.sh", target, mode: "0755" },
+    ],
+    runtimeHooks: {
+      prelaunch: { source: "hook.sh", name: "hook.sh", mode: "0755" },
+    },
+  });
+  fs.writeFileSync(path.join(featureDir, "payload.sh"), "resource\n");
+  fs.writeFileSync(path.join(featureDir, "hook.sh"), "hook\n");
+
+  assert.throws(
+    () => stageFeature(root, featuresRoot),
+    /duplicate Linux feature install target/i,
+  );
+  assert.equal(fs.existsSync(path.join(root, "app", target)), false);
+});
+
+test("Linux feature staging rejects framework manifest targets", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-feature-manifest-target-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const target = ".codex-linux/linux-features-staged.json";
+  const { featureDir, featuresRoot } = makeFeatureRoot(root, {
+    id: "unsafe-link",
+    title: "Unsafe Link",
+    resources: [{ source: "payload.json", target, mode: "0644" }],
+  });
+  fs.writeFileSync(path.join(featureDir, "payload.json"), "payload\n");
+
+  assert.throws(
+    () => stageFeature(root, featuresRoot),
+    /Linux feature staging framework/,
+  );
+  assert.equal(fs.existsSync(path.join(root, "app", target)), false);
+});
+
+test("Linux feature staging rejects normalized target aliases across features", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-feature-cross-feature-target-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const target = ".codex-linux/features/shared/payload.txt";
+  const { featureDir, featuresRoot } = makeFeatureRoot(root, {
+    id: "unsafe-link",
+    title: "Unsafe Link",
+    resources: [{ source: "first.txt", target, mode: "0644" }],
+  });
+  const secondFeatureDir = path.join(featuresRoot, "second");
+  fs.mkdirSync(secondFeatureDir);
+  fs.writeFileSync(path.join(featureDir, "first.txt"), "first\n");
+  fs.writeFileSync(path.join(secondFeatureDir, "README.md"), "# Second\n");
+  fs.writeFileSync(path.join(secondFeatureDir, "second.txt"), "second\n");
+  fs.writeFileSync(path.join(secondFeatureDir, "feature.json"), `${JSON.stringify({
+    id: "second",
+    title: "Second",
+    resources: [{ source: "second.txt", target: ".codex-linux\\features\\shared\\payload.txt", mode: "0644" }],
+  }, null, 2)}\n`);
+  fs.writeFileSync(path.join(featuresRoot, "features.json"), '{"enabled":["unsafe-link","second"]}\n');
+
+  assert.throws(
+    () => stageFeature(root, featuresRoot),
+    /feature 'second'.*feature 'unsafe-link'/,
+  );
+  assert.equal(fs.existsSync(path.join(root, "app", target)), false);
+});
+
 test("Linux feature staging rejects symlinked resource sources", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codex-feature-symlink-source-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
