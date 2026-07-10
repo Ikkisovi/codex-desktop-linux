@@ -7284,7 +7284,7 @@ test_linux_computer_use_ui_opt_in_smoke() {
     local main_bundle="$extracted/.vite/build/main-test.js"
     local renderer_asset="$extracted/webview/assets/computer-use-settings-renderer-test.js"
     local current_renderer_asset="$extracted/webview/assets/computer-use-settings-current-test.js"
-    local install_flow_asset="$extracted/webview/assets/app-initial~app-main~onboarding-page~hotkey-window-thread-page~quick-chat-window-page~chatg~test.js"
+    local install_flow_asset="$extracted/webview/assets/app-initial~app-main~pull-request-code-review~onboarding-page~hotkey-window-thread-page~cha~b76hmflu-test.js"
     local native_apps_asset="$extracted/webview/assets/computer-use-settings-native-apps-test.js"
     local bundle_body
     local renderer_body
@@ -7344,7 +7344,7 @@ JS
     assert_not_contains "$renderer_asset" 'function hae(e){return e===`macOS`||e===`windows`||e===`linux`}'
     assert_not_contains "$current_renderer_asset" 'areRequiredFeaturesEnabled:o===`linux`||y'
     assert_not_contains "$native_apps_asset" 'a===`macOS`||a===`windows`||a===`linux`'
-    assert_not_contains "$install_flow_asset" 'areRequiredFeaturesEnabled:o===`linux`||h'
+    assert_not_contains "$install_flow_asset" 'isHostCompatiblePlatform:o===`linux`||Rj(o)'
 
     # Branch 2: env var opts in — all Computer Use UI patches apply.
     rm "$main_bundle" "$renderer_asset" "$current_renderer_asset" "$install_flow_asset" "$native_apps_asset"
@@ -7366,8 +7366,12 @@ JS
     assert_contains "$current_renderer_asset" 'areRequiredFeaturesEnabled:o===`linux`||y'
     assert_contains "$current_renderer_asset" 'isAnyFeatureLoading:o===`linux`?!1:g'
     assert_contains "$native_apps_asset" 'a===`macOS`||a===`windows`||a===`linux`'
-    assert_contains "$install_flow_asset" 'areRequiredFeaturesEnabled:o===`linux`||h'
-    assert_contains "$install_flow_asset" 'isAnyFeatureLoading:o===`linux`?!1:m'
+    assert_contains "$install_flow_asset" 'areRequiredFeaturesEnabled:h'
+    assert_contains "$install_flow_asset" 'isAnyFeatureLoading:m'
+    assert_contains "$install_flow_asset" 'isComputerUseGateEnabled:s'
+    assert_contains "$install_flow_asset" 'isHostCompatiblePlatform:o===`linux`||Rj(o)'
+    assert_not_contains "$install_flow_asset" 'areRequiredFeaturesEnabled:o===`linux`||h'
+    assert_not_contains "$install_flow_asset" 'isComputerUseGateEnabled:o===`linux`||s'
 
     # Branch 3: settings.json flag opts in even without env var.
     rm "$main_bundle" "$renderer_asset" "$current_renderer_asset" "$install_flow_asset" "$native_apps_asset"
@@ -7386,7 +7390,11 @@ JS
     assert_contains "$renderer_asset" 'function hae(e){return e===`macOS`||e===`windows`||e===`linux`}'
     assert_contains "$current_renderer_asset" 'areRequiredFeaturesEnabled:o===`linux`||y'
     assert_contains "$native_apps_asset" 'a===`macOS`||a===`windows`||a===`linux`'
-    assert_contains "$install_flow_asset" 'areRequiredFeaturesEnabled:o===`linux`||h'
+    assert_contains "$install_flow_asset" 'areRequiredFeaturesEnabled:h'
+    assert_contains "$install_flow_asset" 'isComputerUseGateEnabled:s'
+    assert_contains "$install_flow_asset" 'isHostCompatiblePlatform:o===`linux`||Rj(o)'
+    assert_not_contains "$install_flow_asset" 'areRequiredFeaturesEnabled:o===`linux`||h'
+    assert_not_contains "$install_flow_asset" 'isComputerUseGateEnabled:o===`linux`||s'
 }
 
 test_linux_file_manager_patch_fails_soft() {

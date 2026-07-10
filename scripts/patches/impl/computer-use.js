@@ -629,7 +629,7 @@ function applyLinuxComputerUseInstallFlowPatch(currentSource) {
         return match;
       }
       changed = true;
-      return `${resultVar}=${helperVar}({areRequiredFeaturesEnabled:${platformVar}===\`linux\`||${requiredFeaturesVar},enabled:${enabledVar},isAnyFeatureLoading:${platformVar}===\`linux\`?!1:${featureLoadingVar},isComputerUseGateEnabled:${platformVar}===\`linux\`||${rolloutVar},isHostCompatiblePlatform:${platformVar}===\`linux\`||${platformPredicateVar}(${platformVar}),isPlatformLoading:${platformLoadingVar},windowType:\`electron\`})`;
+      return `${resultVar}=${helperVar}({areRequiredFeaturesEnabled:${requiredFeaturesVar},enabled:${enabledVar},isAnyFeatureLoading:${featureLoadingVar},isComputerUseGateEnabled:${rolloutVar},isHostCompatiblePlatform:${platformVar}===\`linux\`||${platformPredicateVar}(${platformVar}),isPlatformLoading:${platformLoadingVar},windowType:\`electron\`})`;
     },
   );
 
@@ -638,7 +638,7 @@ function applyLinuxComputerUseInstallFlowPatch(currentSource) {
   }
 
   if (
-    /featureName:`computer_use`[\s\S]{0,2200}?areRequiredFeaturesEnabled:([A-Za-z_$][\w$]*)===`linux`\|\|[A-Za-z_$][\w$]*,enabled:[A-Za-z_$][\w$]*,isAnyFeatureLoading:\1===`linux`\?!1:[A-Za-z_$][\w$]*,isComputerUseGateEnabled:\1===`linux`\|\|[A-Za-z_$][\w$]*,isHostCompatiblePlatform:\1===`linux`\|\|[A-Za-z_$][\w$]*\(\1\),isPlatformLoading:/.test(currentSource)
+    /featureName:`computer_use`[\s\S]{0,2200}?areRequiredFeaturesEnabled:[A-Za-z_$][\w$]*,enabled:[A-Za-z_$][\w$]*,isAnyFeatureLoading:[A-Za-z_$][\w$]*,isComputerUseGateEnabled:[A-Za-z_$][\w$]*,isHostCompatiblePlatform:([A-Za-z_$][\w$]*)===`linux`\|\|[A-Za-z_$][\w$]*\(\1\),isPlatformLoading:/.test(currentSource)
   ) {
     return currentSource;
   }
