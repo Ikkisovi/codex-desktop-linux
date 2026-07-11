@@ -22,6 +22,7 @@ const LINUX_APP_SERVER_CONVERSATION_HYDRATION_QUEUE_MARKER = "codexLinuxRemoteMo
 const LINUX_APP_SERVER_CONVERSATION_HYDRATION_IN_FLIGHT_MARKER = "codexLinuxRemoteMobileHydrationInFlight";
 const LINUX_APP_SERVER_CONVERSATION_HYDRATION_LATE_EVENT_MARKER = "codexLinuxRemoteMobileHydrateLateEvent";
 const LINUX_APP_SERVER_COMPLETED_RESUME_MARKER = "codexLinuxResumeShouldStream";
+const LINUX_APP_SERVER_UNOWNED_TURN_CLAIM_MARKER = "codexLinuxClaimUnownedTurn";
 
 function applyLinuxSafeMonospaceFontStackPatch(currentSource) {
   const safeLinuxMonoFontPattern =
@@ -931,6 +932,28 @@ function applyLinuxAppServerConversationHydrationPatch(currentSource) {
     ) {
       console.warn(
         "WARN: Could not find completed resume streaming insertion point — skipping Linux completed resume recovery patch",
+      );
+    }
+  }
+
+  if (!patchedSource.includes(LINUX_APP_SERVER_UNOWNED_TURN_CLAIM_MARKER)) {
+    const unownedTurnNeedle =
+      /if\(([A-Za-z_$][\w$]*)\)return ([A-Za-z_$][\w$]*)\.abort\(([A-Za-z_$][\w$]*),`follower_window_forwarded`\),\1\.result;if\(([A-Za-z_$][\w$]*)\.getStreamRole\(([A-Za-z_$][\w$]*)\)\?\.role!==`owner`\)throw Error\(([A-Za-z_$][\w$]*)\);if\(!\4\.isConversationStreaming\(\5\)\)/u;
+    const unownedTurnMatch = unownedTurnNeedle.exec(patchedSource);
+
+    if (unownedTurnMatch != null) {
+      const [, forwardedVar, abortManagerVar, userMessageIdVar, managerVar, conversationIdVar, errorVar] =
+        unownedTurnMatch;
+      patchedSource = patchedSource.replace(
+        unownedTurnNeedle,
+        `if(${forwardedVar})return ${abortManagerVar}.abort(${userMessageIdVar},\`follower_window_forwarded\`),${forwardedVar}.result;/*${LINUX_APP_SERVER_UNOWNED_TURN_CLAIM_MARKER}*/${managerVar}.getStreamRole(${conversationIdVar})==null&&(${managerVar}.markConversationStreaming(${conversationIdVar}),${managerVar}.setConversationStreamRole(${conversationIdVar},{role:\`owner\`}));if(${managerVar}.getStreamRole(${conversationIdVar})?.role!==\`owner\`)throw Error(${errorVar});if(!${managerVar}.isConversationStreaming(${conversationIdVar}))`,
+      );
+    } else if (
+      patchedSource.includes("follower_window_forwarded") &&
+      patchedSource.includes("Conversation is not being streamed.")
+    ) {
+      console.warn(
+        "WARN: Could not find unowned turn claim insertion point — completed resumed threads may reject new turns",
       );
     }
   }

@@ -5957,6 +5957,49 @@ test("does not retain streaming ownership when a completed thread resumes withou
   });
 });
 
+test("claims an unowned completed thread when starting a new turn", async () => {
+  const source = [
+    "async function start(e,t,c){",
+    "let p=await MF({conversationId:t,getStreamRole:t=>e.getStreamRole(t),sendRequest:r=>e.sendThreadFollowerRequest(r,`thread-follower-start-turn`,{conversationId:t})});",
+    "if(p)return UP.abort(c,`follower_window_forwarded`),p.result;",
+    "if(e.getStreamRole(t)?.role!==`owner`)throw Error(Kw);",
+    "if(!e.isConversationStreaming(t))throw K.error(`Conversation is not being streamed.`,{safe:{conversationId:t},sensitive:{}}),Error(`Conversation ${t} is not being streamed.`);",
+    "return e.sendRequest(`turn/start`,{threadId:t})",
+    "}",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxAppServerConversationHydrationPatch, source);
+
+  assert.match(patched, /codexLinuxClaimUnownedTurn/);
+  const context = {};
+  vm.runInNewContext(
+    [
+      "var Kw=`wrong window`,K={error:()=>{}},UP={abort:()=>{}};",
+      "async function MF({conversationId:e,getStreamRole:t,sendRequest:n}){return n(t(e))}",
+      patched,
+      "function manager(role){let state={role,marked:false,started:false,forwarded:false};return {state,getStreamRole:()=>state.role==null?null:state.role,setConversationStreamRole:(id,value)=>{state.role=value},markConversationStreaming:()=>{state.marked=true},isConversationStreaming:()=>state.marked||state.role?.role===`follower`,sendThreadFollowerRequest:async role=>{if(role?.role===`follower`){state.forwarded=true;return{result:`forwarded`}}return null},sendRequest:async()=>{state.started=true;return`started`}}}",
+      "result=(async()=>{let unowned=manager(null),follower=manager({role:`follower`,ownerClientId:`window-2`});let unownedResult=await start(unowned,`thread-1`,`message-1`),followerResult=await start(follower,`thread-2`,`message-2`);return{unowned:{state:unowned.state,result:unownedResult},follower:{state:follower.state,result:followerResult}}})()",
+    ].join(""),
+    context,
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(await context.result)), {
+    unowned: {
+      state: { role: { role: "owner" }, marked: true, started: true, forwarded: false },
+      result: "started",
+    },
+    follower: {
+      state: {
+        role: { role: "follower", ownerClientId: "window-2" },
+        marked: false,
+        started: false,
+        forwarded: true,
+      },
+      result: "forwarded",
+    },
+  });
+});
+
 test("recovers completed stream items that arrive after local state lost their started item", () => {
   const source = [
     "class T{onNotification(e,t){let n={method:e,params:t};switch(n.method){case`item/completed`:{if(this.frameTextDeltaQueue.drainBefore(()=>{this.onNotification(`item/completed`,n.params)}))break;",
