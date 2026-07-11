@@ -1520,11 +1520,13 @@ SCRIPT
     printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "${CODEX_CLI_PATH:-}"' > "$capture_dir/AppDir/opt/codex-desktop/start.sh"
     chmod 0755 "$capture_dir/AppDir/opt/codex-desktop/start.sh"
     local app_run_output
-    app_run_output="$(env -i PATH=/usr/bin:/bin HOME="$workspace/home" APPDIR="$capture_dir/AppDir" "$capture_dir/AppDir/AppRun")"
+    local app_run_path
+    app_run_path="$(dirname "$BASH_BIN")"
+    app_run_output="$(env -i PATH="$app_run_path" HOME="$workspace/home" APPDIR="$capture_dir/AppDir" "$BASH_BIN" "$capture_dir/AppDir/AppRun")"
     [ "$app_run_output" = "$bundled_cli" ] || fail "Expected AppRun to select bundled Codex CLI: $app_run_output"
-    app_run_output="$(env -i PATH=/usr/bin:/bin HOME="$workspace/home" APPDIR="$capture_dir/AppDir" CODEX_CLI_PATH=/custom/codex "$capture_dir/AppDir/AppRun")"
+    app_run_output="$(env -i PATH="$app_run_path" HOME="$workspace/home" APPDIR="$capture_dir/AppDir" CODEX_CLI_PATH=/custom/codex "$BASH_BIN" "$capture_dir/AppDir/AppRun")"
     [ "$app_run_output" = "/custom/codex" ] || fail "Expected explicit CODEX_CLI_PATH to override bundled CLI: $app_run_output"
-    [ "$("$bundled_cli" --version)" = "v22.22.2" ] || fail "Expected bundled CLI wrapper to use the managed Node runtime"
+    [ "$("$BASH_BIN" "$bundled_cli" --version)" = "v22.22.2" ] || fail "Expected bundled CLI wrapper to use the managed Node runtime"
 
     rm -rf "$platform_source" "$capture_dir"
     mkdir -p "$capture_dir"
