@@ -448,6 +448,7 @@ test("unlocked layout does not re-anchor while a drag is active", () => {
 test("syncs overlay window hints without requiring Hyprland", () => {
   const patched = applyPetOverlayPatch(currentAvatarOverlayBundleFixture());
   const calls = [];
+  const handlers = {};
   const { controller } = controllerFromPatchedSource(patched);
   controller.window = { isDestroyed: () => false, isVisible: () => false };
   controller.showWindow({
@@ -464,6 +465,11 @@ test("syncs overlay window hints without requiring Hyprland", () => {
     webContents: {
       executeJavaScript: (script) => calls.push(["js", script]),
       insertCSS: (css, options) => calls.push(["css", css, options]),
+      isDestroyed: () => false,
+      on: (event, handler) => {
+        handlers[event] = handler;
+        calls.push(["on", event]);
+      },
     },
   });
 
@@ -474,12 +480,17 @@ test("syncs overlay window hints without requiring Hyprland", () => {
     ["always", true],
     ["background", "#00000000"],
   ]);
-  assert.equal(calls[5][0], "css");
-  assert.equal(calls[5][2].cssOrigin, "author");
-  assert.equal(calls[6][0], "js");
-  assert.match(calls[5][1], /background:transparent!important/);
-  assert.match(calls[6][1], /document\.documentElement\.style\.background/);
-  assert.deepEqual(calls.slice(7), [["opacity", 1], ["workspaces", true, true], "moveTop", "showInactive"]);
+  assert.deepEqual(calls[5], ["on", "did-finish-load"]);
+  assert.equal(calls[6][0], "css");
+  assert.equal(calls[6][2].cssOrigin, "author");
+  assert.equal(calls[7][0], "js");
+  assert.match(calls[6][1], /background:transparent!important/);
+  assert.match(calls[7][1], /document\.documentElement\.style\.background/);
+  assert.deepEqual(calls.slice(8), [["opacity", 1], ["workspaces", true, true], "moveTop", "showInactive"]);
+
+  handlers["did-finish-load"]();
+  assert.equal(calls.filter(([kind]) => kind === "css").length, 2);
+  assert.equal(calls.filter(([kind]) => kind === "js").length, 2);
 });
 
 test("passive mode makes the overlay non-focusable", () => {
