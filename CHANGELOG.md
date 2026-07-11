@@ -21,6 +21,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   XDG GlobalShortcuts and RemoteDesktop portals for press, release, and paste
   handling without direct input-device access or elevated permissions.
 
+### Changed
+
+- Default Linux builds no longer patch the upstream conversation hydration,
+  stream ownership, resume, or follower-forwarding state machine. Remote
+  conversation hydration remains owned by the disabled-by-default
+  `remote-mobile-control` feature.
+
 ### Fixed
 
 - Automated user-local updates no longer inherit or set developer overrides
@@ -32,10 +39,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Linux X11. This avoids a GNOME Shell modal input grab that could lock desktop
   input and flood system logs, while preserving parented dialogs on Wayland,
   macOS, and Windows.
-- Resuming a completed thread no longer leaves it registered as streaming when
-  the app server reports no active runtime. This clears stale stream ownership
-  before the next message instead of leaving the renderer in a repeated thread
-  history refresh path.
 - Updater DMG downloads now publish crash-durable, content-addressed files only
   after a complete streamed download. Concurrent daemon and wrapper rebuilds
   cannot truncate or replace each other's input, and DMG hashing stays bounded

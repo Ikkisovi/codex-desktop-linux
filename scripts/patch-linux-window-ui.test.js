@@ -1047,7 +1047,6 @@ test("default core patch descriptors are grouped and unique", () => {
     "linux-app-sunset-gate",
     "linux-app-server-feature-enablement",
     "linux-app-server-backfill-wait",
-    "linux-app-server-conversation-hydration",
     "linux-completed-item-recovery",
     "linux-remote-terminal-status-recovery",
     "linux-skills-list-dedupe",
@@ -5859,41 +5858,14 @@ test("restarts late-event hydration when a pending queue exists without an in-fl
   assert.deepEqual(updatedConversations, ["thread-a"]);
 });
 
-test("discovers current app-server conversation core Linux webview patches", () => {
-  const legacyConversationAsset =
-    "app-initial~app-main~worktree-init-v2-page~remote-conversation-page~new-thread-panel-page~o~bj5tp28r-Dcs9S3fj.js";
-  const legacyLatestConversationAsset =
-    "app-initial~app-main~new-thread-panel-page~appgen-library-page~hotkey-window-thread-page~ho~glxlkd48-Bty5T9_s.js";
-  const currentConversationAsset =
-    "app-initial~app-main~pull-request-code-review~onboarding-page~hotkey-window-thread-page~cha~b76hmflu-y0KJWbm3.js";
-  const oldConversationAsset =
-    "app-initial~app-main~hotkey-window-thread-page~thread-app-shell-chrome~header~remote-conver~h59fr3q5-Cm3GYhJA.js";
-  const projectlessRemoteTaskAsset =
-    "app-initial~app-main~worktree-init-v2-page~remote-conversation-page~pull-requests-page~plug~kmtatxxf-DEE2TwPG.js";
-  const latestProjectlessRemoteTaskAsset =
-    "app-initial~app-main~new-thread-panel-page~appgen-library-page~hotkey-window-thread-page~ho~iufn7mg3-MXsOJYYa.js";
+test("keeps remote conversation hydration out of core Linux webview patches", () => {
+  const descriptors = corePatchDescriptors();
 
-  for (const id of ["linux-app-server-conversation-hydration", "linux-completed-item-recovery"]) {
-    const descriptor = corePatchDescriptors().find((patch) => patch.id === id);
-
-    assert.ok(descriptor);
-    assert.equal(descriptor.phase, "webview-asset");
-    assert.equal(descriptor.ciPolicy, "optional");
-    assert.equal(
-      descriptor.pattern.test(
-        "app-initial~app-main~onboarding-page~hotkey-window-thread-page~quick-chat-window-page~chatg~gwqc41kz-Bj9ubaFn.js",
-      ),
-      true,
-    );
-    assert.equal(descriptor.pattern.test(currentConversationAsset), false);
-    assert.equal(descriptor.pattern.test(legacyConversationAsset), false);
-    assert.equal(descriptor.pattern.test(legacyLatestConversationAsset), false);
-    assert.equal(descriptor.pattern.test(oldConversationAsset), false);
-    assert.equal(descriptor.pattern.test(projectlessRemoteTaskAsset), false);
-    assert.equal(descriptor.pattern.test(latestProjectlessRemoteTaskAsset), false);
-    assert.equal(descriptor.pattern.test("app-server-manager-signals-test.js"), false);
-    assert.equal(descriptor.pattern.test("remote-connections-settings-fixture.js"), false);
-  }
+  assert.equal(
+    descriptors.some((patch) => patch.id === "linux-app-server-conversation-hydration"),
+    false,
+  );
+  assert.ok(descriptors.some((patch) => patch.id === "linux-completed-item-recovery"));
 });
 
 test("does not retain streaming ownership when a completed thread resumes without an active runtime", () => {

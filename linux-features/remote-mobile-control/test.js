@@ -2169,18 +2169,16 @@ test("remote mobile feature patch report records feature metadata and partial wa
       assert.equal(settingsPatch.status, "applied-with-warnings");
       assert.ok(settingsPatch.warnings.some((warning) => warning.includes("SSH install release needles")));
 
-      const hydrationPatch = report.patches.find(
-        (patch) => patch.name === "linux-app-server-conversation-hydration",
+      assert.equal(
+        report.patches.some((patch) => patch.name === "linux-app-server-conversation-hydration"),
+        false,
       );
-      assert.equal(hydrationPatch.sourceKind, "core");
-      assert.equal(hydrationPatch.status, "applied");
-      assert.equal(hydrationPatch.warnings, undefined);
 
       const featureHydrationPatch = report.patches.find(
         (patch) => patch.name === "feature:remote-mobile-control:linux-remote-mobile-conversation-hydration",
       );
       assert.equal(featureHydrationPatch.sourceKind, "feature");
-      assert.equal(featureHydrationPatch.status, "already-applied");
+      assert.equal(featureHydrationPatch.status, "applied");
     } finally {
       fs.rmSync(tempApp, { recursive: true, force: true });
     }
@@ -2613,15 +2611,14 @@ test("remote mobile control feature participates in ASAR patching and reports", 
           ),
         );
         assert.ok(
-          report.patches.some((patch) =>
-            patch.name === "linux-app-server-conversation-hydration" &&
-            patch.status === "applied",
+          !report.patches.some(
+            (patch) => patch.name === "linux-app-server-conversation-hydration",
           ),
         );
         assert.ok(
           report.patches.some((patch) =>
             patch.name === "feature:remote-mobile-control:linux-remote-mobile-conversation-hydration" &&
-            patch.status === "already-applied",
+            patch.status === "applied",
           ),
         );
         assert.ok(
