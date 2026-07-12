@@ -940,6 +940,7 @@ test("default core patch descriptors are grouped and unique", () => {
     "linux-bundled-plugin-copy-permissions",
     "linux-browser-use-route-liveness",
     "linux-chrome-extension-status",
+    "linux-notification-actions",
     "linux-local-app-server-feature-enablement-handler",
     "linux-remote-control-config-preservation",
     "linux-app-updater-menu",

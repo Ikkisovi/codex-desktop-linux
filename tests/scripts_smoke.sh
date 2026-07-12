@@ -635,6 +635,7 @@ SCRIPT
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/build-info.sh"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/linux-features.js"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/linux-features.sh"
+    assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/notification-actions.sh"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/linux-target-context.js"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/patches/descriptor.js"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/patches/engine.js"
@@ -655,6 +656,7 @@ SCRIPT
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/Cargo.toml"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/CHANGELOG.md"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/computer-use-linux/Cargo.toml"
+    assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/notification-actions-linux/Cargo.toml"
     assert_file_not_exists "$pkg_root/opt/codex-desktop/update-builder/global-dictation-linux/Cargo.toml"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/read-aloud-linux/Cargo.toml"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/updater/Cargo.toml"
@@ -804,6 +806,7 @@ JSON
     assert_not_contains "$staged_config" "localComment"
     assert_not_contains "$staged_config" "disabled-feature"
     assert_contains "$update_builder_manifest" "record-replay-linux/Cargo.toml"
+    assert_contains "$update_builder_manifest" "notification-actions-linux/Cargo.toml"
     assert_contains "$update_builder_manifest" "global-dictation-linux/Cargo.toml"
     assert_contains "$update_builder_manifest" "assets/codex-linux.png"
     assert_not_contains "$update_builder_manifest" "^node-runtime/"
@@ -9038,6 +9041,29 @@ EOF
     )
 }
 
+test_notification_actions_bridge_accepts_prebuilt_binary() {
+    local workspace="$TMP_DIR/notification-actions-bridge"
+    local source_binary="$workspace/prebuilt/codex-notification-actions-linux"
+    local install_dir="$workspace/codex-app"
+    local target_binary="$install_dir/resources/native/codex-notification-actions-linux"
+
+    mkdir -p "$(dirname "$source_binary")" "$install_dir/resources/native"
+    cp "$TRUE_BIN" "$source_binary"
+    chmod 0755 "$source_binary"
+
+    (
+        export SCRIPT_DIR="$REPO_DIR"
+        export INSTALL_DIR="$install_dir"
+        export CODEX_NOTIFICATION_ACTIONS_SOURCE="$source_binary"
+        # shellcheck disable=SC1091
+        source "$REPO_DIR/scripts/lib/notification-actions.sh"
+        stage_linux_notification_actions_bridge
+    )
+
+    assert_file_exists "$target_binary"
+    assert_mode "$target_binary" "755"
+}
+
 main() {
     test_common_helper_sourcing
     test_package_icon_source_resolution
@@ -9120,6 +9146,7 @@ main() {
     test_native_module_rebuild_uses_local_electron_rebuild_toolchain
     test_native_module_rebuild_accepts_prebuilt_source
     test_bundled_plugin_builders_accept_prebuilt_binaries
+    test_notification_actions_bridge_accepts_prebuilt_binary
     test_bundled_plugin_system_computer_use_preserves_cosmic_helper_name
     test_browser_use_node_repl_fallback_runtime
     test_browser_use_file_url_policy_patch_behavior

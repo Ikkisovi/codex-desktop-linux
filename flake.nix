@@ -75,6 +75,17 @@
           cp -R ${./computer-use-linux} "$out/computer-use-linux"
           chmod -R u+w "$out"
         '';
+        notificationActionsBuildSource = pkgs.runCommandLocal "codex-notification-actions-linux-source" { } ''
+          mkdir -p "$out"
+          cp ${./Cargo.lock} "$out/Cargo.lock"
+          cat > "$out/Cargo.toml" <<'EOF'
+          [workspace]
+          members = ["notification-actions-linux"]
+          resolver = "2"
+          EOF
+          cp -R ${./notification-actions-linux} "$out/notification-actions-linux"
+          chmod -R u+w "$out"
+        '';
         nativeModulesBuildSupport = pkgs.runCommandLocal "codex-native-modules-build-support" { } ''
           mkdir -p "$out/scripts/lib"
           cp ${./scripts/lib/native-modules.sh} "$out/scripts/lib/native-modules.sh"
@@ -157,6 +168,33 @@
             install -Dm0755 "$release_dir/codex-computer-use-linux" "$out/bin/codex-computer-use-linux"
             install -Dm0755 "$release_dir/codex-computer-use-cosmic" "$out/bin/codex-computer-use-cosmic"
             install -Dm0755 "$release_dir/codex-chrome-extension-host" "$out/bin/codex-chrome-extension-host"
+            runHook postInstall
+          '';
+        };
+
+        codexNotificationActionsBinary = pkgs.rustPlatform.buildRustPackage {
+          pname = "codex-notification-actions-linux";
+          version = "0.1.0";
+          src = notificationActionsBuildSource;
+
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+          };
+
+          cargoBuildFlags = [
+            "-p"
+            "codex-notification-actions-linux"
+          ];
+
+          doCheck = true;
+
+          installPhase = ''
+            runHook preInstall
+            release_dir="target/''${CARGO_BUILD_TARGET:-${pkgs.stdenv.hostPlatform.rust.rustcTarget}}/release"
+            if [ ! -d "$release_dir" ]; then
+              release_dir="target/release"
+            fi
+            install -Dm0755 "$release_dir/codex-notification-actions-linux" "$out/bin/codex-notification-actions-linux"
             runHook postInstall
           '';
         };
@@ -497,6 +535,7 @@ PY
             export CODEX_LINUX_COMPUTER_USE_BACKEND_SOURCE="${codexComputerUseBinaries}/bin/codex-computer-use-linux"
             export CODEX_LINUX_COMPUTER_USE_COSMIC_SOURCE="${codexComputerUseBinaries}/bin/codex-computer-use-cosmic"
             export CODEX_CHROME_EXTENSION_HOST_SOURCE="${codexComputerUseBinaries}/bin/codex-chrome-extension-host"
+            export CODEX_NOTIFICATION_ACTIONS_SOURCE="${codexNotificationActionsBinary}/bin/codex-notification-actions-linux"
             ${pkgs.lib.optionalString (builtins.elem "mcp-helper-reaper" linuxFeatureIds) ''
             export CODEX_MCP_HELPER_REAPER_SOURCE="${codexMcpHelperReaper}/bin/codex-mcp-helper-reaper"
             ''}
@@ -719,6 +758,7 @@ PY
         };
 
         checks = {
+          notification-actions-linux = codexNotificationActionsBinary;
           nix-linux-features-evaluation = import ./nix/linux-features-test.nix {
             inherit pkgs self system;
           };
