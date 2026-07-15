@@ -752,7 +752,6 @@ function applyCollectedAssetPatchWrites(patches) {
 }
 
 function patchKeybindsSettingsAssets(extractedDir) {
-  const reloadShortcut = patchWebviewReloadShortcutRuntime(extractedDir);
   try {
     if (!hasNativeKeyboardShortcutsSettings(extractedDir)) {
       throw new Error("Required Keybinds settings patch failed: current upstream Keyboard Shortcuts settings route is missing");
@@ -786,7 +785,6 @@ function patchKeybindsSettingsAssets(extractedDir) {
         extractedDir,
         isSettingsSharedMetadataBundleSource,
         applyLinuxDesktopSettingsSharedPatch,
-  applyLinuxBrowserReloadShortcutRuntimePatch,
       ),
       ...collectOptionalMatchingAssetPatches(
         extractedDir,
@@ -801,7 +799,6 @@ function patchKeybindsSettingsAssets(extractedDir) {
 
     fs.writeFileSync(settingsAsset.filePath, settingsAsset.source, "utf8");
     let changed = previousSettingsSource !== settingsAsset.source ? 1 : 0;
-    changed += reloadShortcut.changed;
     changed += applyCollectedAssetPatchWrites(patches);
     return {
       matched: true,
@@ -810,14 +807,6 @@ function patchKeybindsSettingsAssets(extractedDir) {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (reloadShortcut.matched) {
-      console.warn(`WARN: Keybinds settings patch skipped: ${message}; applied the webview reload shortcut fallback`);
-      return {
-        matched: true,
-        changed: reloadShortcut.changed,
-        reason: `settings patch skipped (${message}); applied webview reload shortcut fallback`,
-      };
-    }
     console.warn(`WARN: Keybinds settings patch skipped: ${message}`);
     return { matched: false, changed: 0, reason: message };
   }
@@ -1079,40 +1068,6 @@ function applyKeybindsSettingsIndexPatch(currentSource) {
   return applyLinuxKeybindOverridesRuntimePatch(patchedSource);
 }
 
-function applyLinuxBrowserReloadShortcutRuntimePatch(currentSource) {
-  const runtimeMarker = ";function codexLinuxBrowserReloadShortcutRuntime()";
-  const runtimePatch = `;function codexLinuxBrowserReloadShortcutRuntime(){try{if(typeof window=="undefined"||window.__codexLinuxReloadShortcutInstalled)return;window.__codexLinuxReloadShortcutInstalled=!0;window.addEventListener("keydown",event=>{if(event.defaultPrevented||event.repeat||event.altKey||event.metaKey||!event.ctrlKey||event.code!=="KeyR")return;event.preventDefault();event.stopImmediatePropagation();window.location.reload()},!0)}catch{}}codexLinuxBrowserReloadShortcutRuntime();`;
-  const existingRuntimeIndex = currentSource.indexOf(runtimeMarker);
-  if (existingRuntimeIndex !== -1) {
-    return `${currentSource.slice(0, existingRuntimeIndex).trimEnd()}\n${runtimePatch}`;
-  }
-  return `${currentSource}\n${runtimePatch}`;
-}
-
-function patchWebviewReloadShortcutRuntime(extractedDir) {
-  const assetsDir = path.join(extractedDir, "webview", "assets");
-  if (!fs.existsSync(assetsDir)) {
-    return { matched: false, changed: 0 };
-  }
-
-  const entryBundle = fs.readdirSync(assetsDir)
-    .sort()
-    .find((assetName) => /^index-[^/]+\.js$/u.test(assetName));
-  if (entryBundle == null) {
-    return { matched: false, changed: 0 };
-  }
-
-  const entryPath = path.join(assetsDir, entryBundle);
-  const currentSource = fs.readFileSync(entryPath, "utf8");
-  const patchedSource = applyLinuxBrowserReloadShortcutRuntimePatch(currentSource);
-  if (patchedSource === currentSource) {
-    return { matched: true, changed: 0 };
-  }
-
-  fs.writeFileSync(entryPath, patchedSource, "utf8");
-  return { matched: true, changed: 1 };
-}
-
 function isSettingsRouteBundleSource(currentSource) {
   return currentSource.includes(linuxDesktopSettingsAsset)
     || /"general-settings":[A-Za-z_$][\w$]*\(async\(\)=>\(await [A-Za-z_$][\w$]*\(async\(\)=>\{let\{GeneralSettings:[A-Za-z_$][\w$]*\}=await import\(`/u.test(
@@ -1173,7 +1128,7 @@ function applyLinuxDesktopSettingsRoutePatch(
     );
   }
 
-  return applyLinuxBrowserReloadShortcutRuntimePatch(patchedSource);
+  return patchedSource;
 }
 
 function applyLinuxDesktopSettingsNavigationPatch(currentSource) {
@@ -1265,13 +1220,11 @@ module.exports = {
   applyLinuxDesktopSettingsRoutePatch,
   applyLinuxDesktopSettingsSectionsPatch,
   applyLinuxDesktopSettingsSharedPatch,
-  applyLinuxBrowserReloadShortcutRuntimePatch,
   applyLinuxKeybindOverridesRuntimePatch,
   applyLinuxShortcutPhysicalKeyFallbackPatch,
   keybindsSettingsAsset,
   linuxDesktopSettingsAsset,
   linuxKeybindOverridesKey,
   patchKeybindsSettingsAssets,
-  patchWebviewReloadShortcutRuntime,
   resolveLinuxDesktopSettingsAsset,
 };

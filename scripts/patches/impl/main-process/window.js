@@ -305,6 +305,39 @@ function applyLinuxApplicationMenuPatch(currentSource) {
   );
 }
 
+function applyLinuxBrowserReloadShortcutCapturePatch(currentSource) {
+  const patchMarker = "codexLinuxCommandKeymapState";
+  if (currentSource.includes(patchMarker)) {
+    return currentSource;
+  }
+
+  const commandListReplacement =
+    "[`hardReloadBrowserPage`,`nextRecentThread`,`nextThread`,`openBrowserTab`,`previousRecentThread`,`previousThread`,`reloadBrowserPage`]";
+  const commandListPattern =
+    /\[`nextRecentThread`,`nextThread`,`openBrowserTab`,`previousRecentThread`,`previousThread`\]/;
+  const acceleratorResolverPattern =
+    /let ([A-Za-z_$][\w$]*)=process\.platform===`darwin`,([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)=>\s*([A-Za-z_$][\w$]*)\.Gt\(\{commandId:\3,isMacOS:\1\}\);/;
+  const acceleratorMapPattern =
+    /return\{closeTab:([A-Za-z_$][\w$]*)\(`closeTab`\),nextTab:\1\(`nextTab`\),nextRecentThread:\1\(`nextRecentThread`\),nextThread:\1\(`nextThread`\),openBrowserTab:\1\(`openBrowserTab`\),previousTab:\1\(`previousTab`\),previousRecentThread:\1\(`previousRecentThread`\),previousThread:\1\(`previousThread`\)\}/;
+  const resolverMatch = currentSource.match(acceleratorResolverPattern);
+  const mapMatch = currentSource.match(acceleratorMapPattern);
+  if (!commandListPattern.test(currentSource) || resolverMatch == null || mapMatch == null) {
+    console.warn("WARN: Could not find browser WebContents owner shortcut resolver — skipping Linux browser reload shortcut capture patch");
+    return currentSource;
+  }
+
+  const [, isMacAlias, resolverAlias, commandIdAlias, commandsAlias] = resolverMatch;
+  const acceleratorResolverReplacement =
+    `let ${isMacAlias}=process.platform===\`darwin\`,${patchMarker}=${commandsAlias}.qt(),${resolverAlias}=${commandIdAlias}=>${commandsAlias}.Qt({commandId:${commandIdAlias},keymapState:${patchMarker},isMacOS:${isMacAlias}});`;
+  const acceleratorMapReplacement =
+    `return{closeTab:${resolverAlias}(\`closeTab\`),hardReloadBrowserPage:${resolverAlias}(\`hardReloadBrowserPage\`),nextTab:${resolverAlias}(\`nextTab\`),nextRecentThread:${resolverAlias}(\`nextRecentThread\`),nextThread:${resolverAlias}(\`nextThread\`),openBrowserTab:${resolverAlias}(\`openBrowserTab\`),previousTab:${resolverAlias}(\`previousTab\`),previousRecentThread:${resolverAlias}(\`previousRecentThread\`),previousThread:${resolverAlias}(\`previousThread\`),reloadBrowserPage:${resolverAlias}(\`reloadBrowserPage\`)}`;
+
+  return currentSource
+    .replace(commandListPattern, commandListReplacement)
+    .replace(acceleratorResolverPattern, acceleratorResolverReplacement)
+    .replace(acceleratorMapPattern, acceleratorMapReplacement);
+}
+
 function applyLinuxSetIconPatch(currentSource, iconAsset) {
   if (iconAsset == null) {
     return currentSource;
@@ -565,6 +598,7 @@ process.platform===\`linux\`?Promise.resolve((()=>{let __codexLinuxAboutIcon=$5.
 module.exports = {
   applyLinuxAboutDialogPatch,
   applyLinuxApplicationMenuPatch,
+  applyLinuxBrowserReloadShortcutCapturePatch,
   applyLinuxMenuPatch,
   applyLinuxNativeTitlebarPatch,
   applyLinuxOpaqueBackgroundPatch,
