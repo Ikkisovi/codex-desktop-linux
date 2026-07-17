@@ -9193,10 +9193,12 @@ test_linux_computer_use_ui_opt_in_smoke() {
     local fake_home="$workspace/home"
     local output_log="$workspace/output.log"
     local main_bundle="$extracted/.vite/build/main-test.js"
-    local settings_asset="$extracted/webview/assets/computer-use-settings-CyEHLFtH.js"
-    local install_flow_asset="$extracted/webview/assets/app-initial~artifact-tab-content.electron~app-main~pull-request-route~pull-request-code-rev~jgoqfqy2-test.js"
+    local settings_asset="$extracted/webview/assets/computer-use-settings-DsM_pz8i.js"
+    local host_platform_asset="$extracted/webview/assets/app-initial~artifact-tab-content.electron~notebook-preview-panel~app-main~settings-command-~ekwfx4j1-test.js"
+    local install_flow_asset="$extracted/webview/assets/app-initial~avatarOverlayCompositionSurface~artifact-tab-content.electron~notebook-preview-~iaq4jiqv-test.js"
     local bundle_body
     local settings_body
+    local host_platform_body
     local install_flow_body
 
     mkdir -p "$workspace" "$fake_home/.config/codex-desktop"
@@ -9212,16 +9214,21 @@ var h={handlers:{"native-desktop-apps":async()=>({apps:[]})}};
 JS
 )"
     settings_body="$(cat <<'JS'
-function Ut(){let i=useAvailability(arg),{platform:a}=usePlatform(),o=hostKind(hostId);let d=jsx(Settings,{computerUseAvailability:i,platform:a});let m=i.available?jsx(AllowedApps,{}):null;return jsx(Page,{children:[d,m]})}function Gt(e){let{computerUseAvailability:n,platform:r}=e;let h;h=[];let g=usePlugins(hostId,h),y=useMarketplacePath(hostId),b=useFlag(flagArg),x;x=selectPlugin(g.availablePlugins,pluginName,y);return x}
+function Ht(){let e=cache(24),{selectedHostId:t}=host(),n=data(t),i={hostId:t};let a=useAvailability(i),{platform:o}=usePlatform(),s=hostKind(t)===`local`,c=flag(`188145323`);let f=jsx(Settings,{computerUseAvailability:a,platform:o});let h=a.available?jsx(AllowedApps,{}):null;return jsx(Page,{children:[f,h]})}function Wt(e){let t=cache(35),{computerUseAvailability:n,platform:i}=e,{selectedHostId:s}=host();let g=[];let _=usePlugins(s,g),v=useMarketplacePath(s),y=useFlag(firstFlag),b=useFlag(secondFlag),x;x=selectPlugin(_.availablePlugins,computerUsePluginName,v);return x}
+JS
+)"
+    host_platform_body="$(cat <<'JS'
+function Se(e){return e===`macOS`||e===`windows`}function Ce(e){let t=cache(16),{enabled:n,hostId:r}=e,i=n===void 0?!0:n,{isLoading:a,platform:o}=usePlatform(),s=flag(`1506311413`),c;t[0]===r?c=t[1]:(c={featureName:`computer_use`,hostId:r},t[0]=r,t[1]=c);let l=useFeature(c),u=o===`windows`&&!a,d=i&&u,f;t[2]===d?f=t[3]:(f={enabled:d},t[2]=d,t[3]=f);let p=useWindowsFeature(f),m=l.isLoading||u&&p.isLoading,h=l.enabled&&(!u||p.enabled),g;t[4]!==h||t[5]!==i||t[6]!==m||t[7]!==s||t[8]!==a||t[9]!==o?(g=resolveAvailability({areRequiredFeaturesEnabled:h,enabled:i,isAnyFeatureLoading:m,isComputerUseGateEnabled:s,isHostCompatiblePlatform:Se(o),isPlatformLoading:a,windowType:`electron`}),t[4]=h,t[5]=i,t[6]=m,t[7]=s,t[8]=a,t[9]=o,t[10]=g):g=t[10];return g}
 JS
 )"
     install_flow_body="$(cat <<'JS'
-function usePluginDetail(e){let{hostId:n,marketplacePath:r,pluginName:i,remoteMarketplaceName:a,enabled:o}=e,s=o===void 0?!0:o,c=n??`local`,u=hostReady(c),f;i==null?f=!1:f=isAvailabilityGated(i);cache[2]===i?f=cache[3]:(f=i!=null&&isAvailabilityGated(i),cache[2]=i,cache[3]=f);let p=f,m;cache[4]!==c||cache[5]!==p?(m={enabled:p,hostId:c},cache[4]=c,cache[5]=p):m=cache[6];let h=useComputerUseAvailability(m),g=(r!=null||a!=null)&&i!=null,loading=u&&s&&g&&p&&h.isLoading,v=u&&s&&g&&(!p||h.available);let query=()=>{if(i==null)throw Error(`plugin detail query requires pluginName`);return read(`read-plugin`,{hostId:c,pluginName:i})};return useQuery({queryFn:query,enabled:v})}
+function Ke(e){let t=cache(31),{hostId:n,marketplacePath:r,pluginName:i,remoteMarketplaceName:a,enabled:o}=e,c=o===void 0?!0:o,l=n??`local`,d;t[0]===l?d=t[1]:(d={hostId:l},t[0]=l,t[1]=d);let f=hostReady(d),p=environment(),m;t[2]===i?m=t[3]:(m=i!=null&&isAvailabilityGated(i),t[2]=i,t[3]=m);let g=m,_;t[4]!==l||t[5]!==g?(_={enabled:g,hostId:l},t[4]=l,t[5]=g,t[6]=_):_=t[6];let v=useComputerUseAvailability(_),y=(r!=null||a!=null)&&i!=null,b=f&&c&&y&&g&&v.isLoading,x=f&&c&&y&&(!g||v.available);let query=async()=>{if(i==null)throw Error(`plugin detail query requires pluginName`);return read(`read-plugin`,{hostId:l,pluginName:i})};return useQuery({queryFn:query,enabled:x})}
 JS
 )"
 
     make_fake_extracted_asar "$extracted" "$bundle_body"
     printf '%s\n' "$settings_body" > "$settings_asset"
+    printf '%s\n' "$host_platform_body" > "$host_platform_asset"
     printf '%s\n' "$install_flow_body" > "$install_flow_asset"
 
     env -u CODEX_LINUX_ENABLE_COMPUTER_USE_UI -u CODEX_LINUX_APP_ID -u CODEX_APP_ID -u CODEX_LINUX_SETTINGS_FILE \
@@ -9231,11 +9238,13 @@ JS
     assert_not_contains "$main_bundle" 'return n===`linux`?{...e,computerUse:!0,computerUseNodeRepl:!0}'
     assert_not_contains "$settings_asset" 'available:!0,isFetching:!1,isLoading:!1'
     assert_not_contains "$settings_asset" 'marketplaceName:`openai-bundled`'
+    assert_not_contains "$host_platform_asset" 'isHostCompatiblePlatform:o===`linux`'
     assert_not_contains "$install_flow_asset" '!==`computer-use`'
 
-    rm "$main_bundle" "$settings_asset" "$install_flow_asset"
+    rm "$main_bundle" "$settings_asset" "$host_platform_asset" "$install_flow_asset"
     printf '%s\n' "$bundle_body" > "$main_bundle"
     printf '%s\n' "$settings_body" > "$settings_asset"
+    printf '%s\n' "$host_platform_body" > "$host_platform_asset"
     printf '%s\n' "$install_flow_body" > "$install_flow_asset"
 
     env -u CODEX_LINUX_APP_ID -u CODEX_APP_ID -u CODEX_LINUX_SETTINGS_FILE \
@@ -9245,16 +9254,19 @@ JS
     assert_contains "$main_bundle" 'codexLinuxNativeDesktopApps'
     assert_contains "$settings_asset" 'available:!0,isFetching:!1,isLoading:!1'
     assert_contains "$settings_asset" 'marketplaceName:`openai-bundled`'
-    assert_contains "$install_flow_asset" 'let p=f&&i!==`computer-use`,m;'
+    assert_contains "$host_platform_asset" 'isHostCompatiblePlatform:o===`linux`||Se(o)'
+    assert_contains "$install_flow_asset" 'let g=m&&i!==`computer-use`,_;'
 
     node "$REPO_DIR/scripts/patch-linux-window-ui.js" "$extracted" >"$output_log" 2>&1
     assert_occurrence_count "$settings_asset" 'available:!0,isFetching:!1,isLoading:!1' '1'
     assert_occurrence_count "$settings_asset" 'marketplaceName:`openai-bundled`' '1'
+    assert_occurrence_count "$host_platform_asset" 'isHostCompatiblePlatform:o===`linux`' '1'
     assert_occurrence_count "$install_flow_asset" '!==`computer-use`' '1'
 
-    rm "$main_bundle" "$settings_asset" "$install_flow_asset"
+    rm "$main_bundle" "$settings_asset" "$host_platform_asset" "$install_flow_asset"
     printf '%s\n' "$bundle_body" > "$main_bundle"
     printf '%s\n' "$settings_body" > "$settings_asset"
+    printf '%s\n' "$host_platform_body" > "$host_platform_asset"
     printf '%s\n' "$install_flow_body" > "$install_flow_asset"
     printf '%s\n' '{"codex-linux-computer-use-ui-enabled": true}' > "$fake_home/.config/codex-desktop/settings.json"
 
@@ -9265,7 +9277,8 @@ JS
     assert_contains "$main_bundle" 'codexLinuxNativeDesktopApps'
     assert_contains "$settings_asset" 'available:!0,isFetching:!1,isLoading:!1'
     assert_contains "$settings_asset" 'marketplaceName:`openai-bundled`'
-    assert_contains "$install_flow_asset" 'let p=f&&i!==`computer-use`,m;'
+    assert_contains "$host_platform_asset" 'isHostCompatiblePlatform:o===`linux`||Se(o)'
+    assert_contains "$install_flow_asset" 'let g=m&&i!==`computer-use`,_;'
 }
 
 test_linux_file_manager_patch_fails_soft() {
