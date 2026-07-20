@@ -2798,6 +2798,7 @@ test_transactional_install_uses_managed_node_and_isolated_reports() {
     assert_contains "$REPO_DIR/install.sh" 'CODEX_ACCEPTANCE_NODE="\$CODEX_MANAGED_NODE_RUNTIME_DIR/bin/node"'
     assert_contains "$REPO_DIR/install.sh" 'report_dir="\$report_base/transactions/\$transaction_id"'
     assert_contains "$REPO_DIR/install.sh" '"\$CODEX_ACCEPTANCE_NODE" "\$SCRIPT_DIR/scripts/validate-upstream-dmg.js"'
+    assert_contains "$REPO_DIR/install.sh" "harden_bundled_plugin_source_tree"
 }
 
 test_installer_cleanup_handles_readonly_trees() {
@@ -5099,13 +5100,16 @@ test_launcher_marketplace_metadata_atomic_staging() (
     local observed_temp
     local observed_target
 
-    mkdir -p "$(dirname "$source_marketplace")" "$target_dir"
+    mkdir -p \
+        "$(dirname "$source_marketplace")" \
+        "$target_dir" \
+        "$codex_home/.tmp/bundled-marketplaces/openai-bundled/plugins"
     printf '%s\n' 'new metadata' > "$source_marketplace"
     awk '/^make_path_owner_trusted\(\) \{/{copy=1} copy{print} copy && /^}/{exit}' \
         "$REPO_DIR/launcher/start.sh.template" > "$function_file"
     awk '/^path_has_unsafe_write\(\) \{/{copy=1} copy{print} copy && /^}/{exit}' \
         "$REPO_DIR/launcher/start.sh.template" >> "$function_file"
-    awk '/^prepare_bundled_marketplace_tmp_root\(\) \{/{copy=1} copy{print} copy && /^}/{exit}' \
+    awk '/^prepare_bundled_marketplace_tmp_paths\(\) \{/{copy=1} copy{print} copy && /^}/{exit}' \
         "$REPO_DIR/launcher/start.sh.template" >> "$function_file"
     awk '/^stage_bundled_marketplace_metadata\(\) \{/{copy=1} copy{print} copy && /^}/{exit}' \
         "$REPO_DIR/launcher/start.sh.template" >> "$function_file"
@@ -5114,12 +5118,24 @@ test_launcher_marketplace_metadata_atomic_staging() (
     SCRIPT_DIR="$app_dir"
     CODEX_HOME="$codex_home"
 
-    chmod 0775 "$codex_home" "$codex_home/.tmp" "$codex_home/.tmp/bundled-marketplaces"
-    prepare_bundled_marketplace_tmp_root
+    umask 0002
+    chmod 0775 \
+        "$codex_home" \
+        "$codex_home/.tmp" \
+        "$codex_home/.tmp/bundled-marketplaces" \
+        "$codex_home/.tmp/bundled-marketplaces/openai-bundled" \
+        "$codex_home/.tmp/bundled-marketplaces/openai-bundled/.agents" \
+        "$codex_home/.tmp/bundled-marketplaces/openai-bundled/.agents/plugins" \
+        "$codex_home/.tmp/bundled-marketplaces/openai-bundled/plugins"
+    prepare_bundled_marketplace_tmp_paths full
     for trusted_path in \
         "$codex_home" \
         "$codex_home/.tmp" \
-        "$codex_home/.tmp/bundled-marketplaces"; do
+        "$codex_home/.tmp/bundled-marketplaces" \
+        "$codex_home/.tmp/bundled-marketplaces/openai-bundled" \
+        "$codex_home/.tmp/bundled-marketplaces/openai-bundled/.agents" \
+        "$codex_home/.tmp/bundled-marketplaces/openai-bundled/.agents/plugins" \
+        "$codex_home/.tmp/bundled-marketplaces/openai-bundled/plugins"; do
         if find "$trusted_path" -maxdepth 0 -perm /022 -print -quit | grep -q .; then
             fail "Bundled marketplace parent remained group/world writable: $trusted_path"
         fi
@@ -5399,7 +5415,7 @@ if "second_instance_handoff_ready" not in runtime_body:
     raise SystemExit("second-instance handoff must skip cold-start setup")
 if "clear_bundled_marketplace_tmp_cache\nreconcile_runtime_state" in runtime_body:
     raise SystemExit("warm-start path must not clear bundled marketplace temp cache")
-if not re.search(r'if needs_cold_start; then\s+log_phase "cold_start_cache_sync_start"\s+if ! prepare_bundled_marketplace_tmp_root; then.*?clear_bundled_marketplace_tmp_cache.*?stage_bundled_marketplace_metadata.*?sync_browser_use_bundled_plugin_cache &.*?sync_chrome_bundled_plugin_cache &.*?sync_computer_use_bundled_plugin_cache &.*?sync_read_aloud_bundled_plugin_cache &.*?sync_extra_bundled_plugin_cache &.*?run_cold_start_hooks.*?log_phase "cold_start_hooks_dispatched"\s+await_webview_server_ready\s+fi', runtime_body, re.S):
+if not re.search(r'if needs_cold_start; then\s+log_phase "cold_start_cache_sync_start"\s+if ! prepare_bundled_marketplace_tmp_paths; then.*?clear_bundled_marketplace_tmp_cache.*?if ! prepare_bundled_marketplace_tmp_paths full; then.*?stage_bundled_marketplace_metadata.*?sync_browser_use_bundled_plugin_cache &.*?sync_chrome_bundled_plugin_cache &.*?sync_computer_use_bundled_plugin_cache &.*?sync_read_aloud_bundled_plugin_cache &.*?sync_extra_bundled_plugin_cache &.*?run_cold_start_hooks.*?log_phase "cold_start_hooks_dispatched"\s+await_webview_server_ready\s+fi', runtime_body, re.S):
     raise SystemExit("bundled marketplace cleanup, staged metadata, concurrent plugin syncs, cold-start hooks, and the webview readiness wait must run only on cold start")
 # The plugin syncs run concurrently, so the shared marketplace.json is staged
 # exactly once beforehand and every sync is awaited before cold-start hooks.
@@ -8059,6 +8075,7 @@ test_chrome_plugin_staging() {
     local host="$chrome_dir/extension-host/linux/x64/extension-host"
 
     mkdir -p "$workspace" "$install_dir/resources"
+    chmod 0775 "$install_dir" "$install_dir/resources"
     make_fake_chrome_upstream_app "$app_dir"
 
     (
@@ -8068,6 +8085,7 @@ test_chrome_plugin_staging() {
         ARCH="x86_64"
         ICON_SOURCE="$workspace/missing-icon.png"
         CODEX_APP_ID="codex-desktop"
+        umask 0002
         mkdir -p "$WORK_DIR"
         warn() { echo "[WARN] $*" >&2; }
         info() { echo "[INFO] $*" >&2; }
@@ -8081,6 +8099,7 @@ test_chrome_plugin_staging() {
             printf '%s\n' "$fake_host"
         }
         install_bundled_plugin_resources "$app_dir"
+        harden_bundled_plugin_source_tree
     ) >"$output_log" 2>&1
 
     assert_file_exists "$host"
@@ -8134,6 +8153,9 @@ test_chrome_plugin_staging() {
     assert_contains "$chrome_dir/skills/control-chrome/SKILL.md" "agent.browsers.list()"
     assert_contains "$chrome_dir/skills/control-chrome/SKILL.md" "browser.tabs.new()"
     assert_contains "$install_dir/resources/plugins/openai-bundled/.agents/plugins/marketplace.json" '"name": "chrome"'
+    assert_mode "$install_dir" "755"
+    assert_mode "$install_dir/resources" "755"
+    assert_mode "$install_dir/resources/plugins" "755"
     [ -z "$(find "$install_dir/resources/plugins/openai-bundled" -perm /022 -print -quit)" ] \
         || fail "Expected staged bundled plugin resources to reject group/other writes"
     assert_contains "$output_log" "Chrome plugin staged from upstream DMG"

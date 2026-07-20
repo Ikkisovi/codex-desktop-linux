@@ -469,14 +469,27 @@ fix_bundled_marketplace_tmp_permissions() {
     find "$marketplace_tmp_root" -type f -exec chmod u+rw {} + 2>/dev/null || true
 }
 
-prepare_bundled_marketplace_tmp_root() {
+prepare_bundled_marketplace_tmp_paths() {
     local codex_home="${CODEX_HOME:-$HOME/.codex}"
+    local marketplace_tmp_root="$codex_home/.tmp/bundled-marketplaces"
+    local scope="${1:-root}"
     local path
+    local -a paths=(
+        "$codex_home"
+        "$codex_home/.tmp"
+        "$marketplace_tmp_root"
+    )
 
-    for path in \
-        "$codex_home" \
-        "$codex_home/.tmp" \
-        "$codex_home/.tmp/bundled-marketplaces"; do
+    if [ "$scope" = "full" ]; then
+        paths+=(
+            "$marketplace_tmp_root/openai-bundled"
+            "$marketplace_tmp_root/openai-bundled/.agents"
+            "$marketplace_tmp_root/openai-bundled/.agents/plugins"
+            "$marketplace_tmp_root/openai-bundled/plugins"
+        )
+    fi
+
+    for path in "${paths[@]}"; do
         if [ -e "$path" ] || [ -L "$path" ]; then
             [ -d "$path" ] && [ ! -L "$path" ] || return 1
         else
@@ -4262,11 +4275,15 @@ fi
 export_packaged_runtime_env
 if needs_cold_start; then
     log_phase "cold_start_cache_sync_start"
-    if ! prepare_bundled_marketplace_tmp_root; then
+    if ! prepare_bundled_marketplace_tmp_paths; then
         notify_error "Bundled plugin staging paths are not trusted. Refusing to start Electron."
         exit 1
     fi
     clear_bundled_marketplace_tmp_cache
+    if ! prepare_bundled_marketplace_tmp_paths full; then
+        notify_error "Bundled plugin staging paths are not trusted. Refusing to start Electron."
+        exit 1
+    fi
     log_phase "bundled_marketplace_tmp_cleared"
     stage_bundled_marketplace_metadata
     log_phase "bundled_marketplace_metadata_staged"
