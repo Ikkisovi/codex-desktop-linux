@@ -1035,6 +1035,7 @@ test("default core patch descriptors are grouped and unique", () => {
     "linux-owl-feature-binding-fallback",
     "linux-avatar-overlay-mouse-passthrough",
     "linux-avatar-settings-sync",
+    "linux-thread-state-refresh",
     "linux-browser-use-availability",
     "linux-browser-use-non-local-navigation",
     "linux-browser-use-external-availability",

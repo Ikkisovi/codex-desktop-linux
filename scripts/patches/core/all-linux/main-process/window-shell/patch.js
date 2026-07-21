@@ -34,6 +34,9 @@ const {
   applyLinuxAvatarOverlayMousePassthroughPatch,
   applyLinuxQueryCacheInvalidationBroadcastPatch,
 } = require("../../../../impl/avatar-overlay.js");
+const {
+  applyLinuxThreadStateRefreshPatch,
+} = require("../../../../impl/main-process/thread-refresh.js");
 
 module.exports = [
   extractedAppPatch({
@@ -142,6 +145,13 @@ module.exports = [
     order: 92,
     ciPolicy: "optional",
     apply: applyLinuxQueryCacheInvalidationBroadcastPatch,
+  }),
+  mainBundlePatch({
+    id: "linux-thread-state-refresh",
+    phase: "main-bundle",
+    order: 94,
+    ciPolicy: "optional",
+    apply: applyLinuxThreadStateRefreshPatch,
   }),
   mainBundlePatch({
     id: "linux-file-manager",
