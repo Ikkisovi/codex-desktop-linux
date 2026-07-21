@@ -276,7 +276,21 @@ resolve_webview_renderer_url() {
     printf '%s/?v=%s\n' "$WEBVIEW_ORIGIN" "$index_sha256"
 }
 
-WEBVIEW_RENDERER_URL="$(resolve_webview_renderer_url)" || exit 1
+select_webview_renderer_url() {
+    WEBVIEW_RENDERER_URL_OVERRIDE_ACTIVE=0
+    if early_truthy_env_value "${CODEX_LINUX_ALLOW_RENDERER_URL_OVERRIDE:-}" &&
+       [ -n "${ELECTRON_RENDERER_URL:-}" ]; then
+        WEBVIEW_RENDERER_URL_OVERRIDE_ACTIVE=1
+        WEBVIEW_RENDERER_URL="$ELECTRON_RENDERER_URL"
+        return 0
+    fi
+
+    WEBVIEW_RENDERER_URL="$(resolve_webview_renderer_url)" || return 1
+}
+
+WEBVIEW_RENDERER_URL=""
+WEBVIEW_RENDERER_URL_OVERRIDE_ACTIVE=0
+select_webview_renderer_url || exit 1
 
 mkdir -p "$LOG_DIR" "$APP_CONFIG_DIR" "$APP_STATE_DIR" "$LAUNCH_ACTION_RUNTIME_DIR"
 chmod 700 "$LAUNCH_ACTION_RUNTIME_DIR" 2>/dev/null || true
@@ -371,7 +385,11 @@ else
 fi
 
 echo "[$(date -Is)] Starting $CODEX_LINUX_APP_DISPLAY_NAME launcher"
-echo "Packaged webview renderer URL: $WEBVIEW_RENDERER_URL"
+if [ "$WEBVIEW_RENDERER_URL_OVERRIDE_ACTIVE" -eq 1 ]; then
+    echo "External renderer URL override active"
+else
+    echo "Packaged webview renderer URL: $WEBVIEW_RENDERER_URL"
+fi
 if [ "$MULTI_LAUNCH_ACTIVE" -eq 1 ]; then
     echo "Multi-launch instance: id=$CODEX_LINUX_INSTANCE_ID webview_port=$CODEX_LINUX_WEBVIEW_PORT state_dir=$APP_STATE_DIR user_data_dir=$CODEX_ELECTRON_USER_DATA_DIR"
 fi
@@ -2289,7 +2307,9 @@ running_app_uses_renderer_url_override() {
     allow_override="$(pid_environ_value "$RUNNING_APP_PID" CODEX_LINUX_ALLOW_RENDERER_URL_OVERRIDE 2>/dev/null || true)"
     truthy_env_value "$allow_override" || return 1
     renderer_url="$(pid_environ_value "$RUNNING_APP_PID" ELECTRON_RENDERER_URL 2>/dev/null || true)"
-    [ -n "$renderer_url" ] && [ "$renderer_url" != "$WEBVIEW_RENDERER_URL" ]
+    [ -n "$renderer_url" ] || return 1
+    renderer_url_override_is_active && return 0
+    [ "$renderer_url" != "$WEBVIEW_RENDERER_URL" ]
 }
 
 terminate_stale_electron_with_pidfd() {
@@ -2760,13 +2780,7 @@ adopt_discovered_webview_server() {
 }
 
 renderer_url_override_is_active() {
-    if truthy_env_value "${CODEX_LINUX_ALLOW_RENDERER_URL_OVERRIDE:-}" &&
-       [ -n "${ELECTRON_RENDERER_URL:-}" ] &&
-       [ "$ELECTRON_RENDERER_URL" != "$WEBVIEW_RENDERER_URL" ]; then
-        return 0
-    fi
-
-    return 1
+    [ "${WEBVIEW_RENDERER_URL_OVERRIDE_ACTIVE:-0}" -eq 1 ]
 }
 
 require_webview_entrypoint() {
@@ -4229,13 +4243,13 @@ if [ -z "${CODEX_CLI_PATH:-}" ]; then
     log_phase "cli_lookup"
 fi
 export CHROME_DESKTOP="${CHROME_DESKTOP:-$CODEX_LINUX_APP_ID.desktop}"
-if ! truthy_env_value "${CODEX_LINUX_ALLOW_RENDERER_URL_OVERRIDE:-}"; then
+if ! renderer_url_override_is_active; then
     if [ -n "${ELECTRON_RENDERER_URL:-}" ] && [ "$ELECTRON_RENDERER_URL" != "$WEBVIEW_RENDERER_URL" ]; then
         echo "Ignoring inherited ELECTRON_RENDERER_URL; set CODEX_LINUX_ALLOW_RENDERER_URL_OVERRIDE=1 to allow overrides"
     fi
     export ELECTRON_RENDERER_URL="$WEBVIEW_RENDERER_URL"
 else
-    export ELECTRON_RENDERER_URL="${ELECTRON_RENDERER_URL:-$WEBVIEW_RENDERER_URL}"
+    export ELECTRON_RENDERER_URL="$WEBVIEW_RENDERER_URL"
 fi
 
 if needs_cold_start && [ -z "$CODEX_CLI_PATH" ]; then

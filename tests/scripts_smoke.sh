@@ -4951,12 +4951,17 @@ SCRIPT
 
     run_packaged_launcher() {
         local test_path="${1:-$HOST_TOOL_PATH}"
+        local -a renderer_override_env=()
+        if [ -n "${2:-}" ]; then
+            renderer_override_env+=(CODEX_LINUX_ALLOW_RENDERER_URL_OVERRIDE="$2")
+        fi
         timeout 20 env -i \
             PATH="$test_path" \
             HOME="$home_dir" \
             XDG_RUNTIME_DIR="$runtime_dir" \
             CODEX_CLI_PATH="$TRUE_BIN" \
             CODEX_WEBVIEW_PORT=45675 \
+            "${renderer_override_env[@]}" \
             ELECTRON_RENDERER_URL="http://127.0.0.1:9999/" \
             ELECTRON_MARKER="$electron_marker" \
             "$app_dir/start.sh"
@@ -5003,6 +5008,16 @@ SCRIPT
     [ "$rc" -ne 0 ] || fail "Launcher should fail when the webview fingerprint cannot be calculated"
     [ ! -e "$electron_marker" ] || fail "Fingerprint failure should stop before Electron"
     assert_contains "$fingerprint_error" "could not fingerprint"
+
+    rm -f "$electron_marker"
+    set +e
+    run_packaged_launcher "$fake_bin:$HOST_TOOL_PATH" 1 > "$fingerprint_error" 2>&1
+    rc=$?
+    set -e
+    [ "$rc" -eq 0 ] || fail "Explicit renderer URL override should bypass packaged fingerprint failure"
+    assert_file_exists "$electron_marker"
+    [ "$(cat "$electron_marker")" = "http://127.0.0.1:9999/" ] \
+        || fail "Fingerprint failure should not replace an explicit renderer URL override"
 }
 
 test_launcher_extra_bundled_plugin_cache_rollback() {
