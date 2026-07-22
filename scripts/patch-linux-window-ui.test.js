@@ -3691,7 +3691,7 @@ test("adds Linux avatar overlay mouse passthrough recovery", () => {
   assert.match(patched, /if\(this\.window!==e\)return;let t=this\.presentationVisibility!=null;this\.codexLinuxStopAvatarPassthroughRecovery\(\),this\.codexLinuxAvatarInputShapeKey=null,this\.codexLinuxAvatarCompositorHintsApplied=!1,this\.codexLinuxAvatarCompositorHintsApplying=!1,this\.cancelMomentum\(\)/);
 });
 
-test("broadcasts query cache invalidations to the avatar overlay window", () => {
+test("broadcasts legacy query cache invalidations to the avatar overlay window", () => {
   const source = [
     "const n={fc:e=>1};",
     "class Handler{constructor(){this.hostId=`local`,this.windowManager={sendMessageToAllRegisteredWindows(){}}}getAppServerConnection(){return null}getIpcClientForWebContents(){return{sendBroadcast:async()=>{}}}async handle(e,t){switch(t.type){case`query-cache-invalidate`:{t.queryKey[0]===`plugins`&&Sr(this.getAppServerConnection(this.hostId));let n=this.getIpcClientForWebContents(e);n&&await n.sendBroadcast(`query-cache-invalidate`,{queryKey:t.queryKey});break}}}}",
@@ -3711,6 +3711,26 @@ test("broadcasts query cache invalidations to the avatar overlay window", () => 
     patched,
     /sourceClientId:`desktop`,version:n\.fc\(`query-cache-invalidate`\),params:\{queryKey:t\.queryKey\}/,
   );
+});
+
+test("syncs current persisted pet settings across renderer windows", () => {
+  const source =
+    "class Handler{avatarOverlayManager;broadcastPersistedAtomUpdate(e,t,n){let r=n===void 0,i={type:`persisted-atom-updated`,key:t,value:r?null:n,deleted:r};if(!t.startsWith(`thread-browser-tabs-v1:`)||r){this.windowManager.sendMessageToAllWindows(i);return}let a=l.BrowserWindow.fromWebContents(e);a!=null&&this.windowManager.sendMessageToWindow(a,i)}}";
+
+  const patched = applyPatchTwice(
+    applyLinuxQueryCacheInvalidationBroadcastPatch,
+    source,
+  );
+
+  assert.match(
+    patched,
+    /let r=n===void 0,i=\{type:`persisted-atom-updated`,key:t,value:r\?null:n,deleted:r\};process\.platform===`linux`&&\(t===`avatar-overlay-mascot-width-px`\|\|t===`selected-avatar-id`\)&&\(\(\)=>\{let codexLinuxAvatarOverlayWindow=this\.avatarOverlayManager\?\.window;/,
+  );
+  assert.match(
+    patched,
+    /this\.windowManager\.sendMessageToWebContents\(codexLinuxAvatarOverlayWindow\.webContents,i\)/,
+  );
+  assert.doesNotMatch(patched, /persisted-atom-sync/);
 });
 
 test("keeps the avatar overlay core patch idempotent after pet overlay composition", () => {

@@ -101,37 +101,58 @@ function patchAvatarOverlayWindowOptions(source) {
 }
 
 function applyLinuxQueryCacheInvalidationBroadcastPatch(currentSource) {
-  const marker = "process.platform===`linux`&&this.windowManager.sendMessageToAllRegisteredWindows({type:`ipc-broadcast`,method:`query-cache-invalidate`";
-  if (currentSource.includes(marker)) {
+  const legacyMarker = "process.platform===`linux`&&this.windowManager.sendMessageToAllRegisteredWindows({type:`ipc-broadcast`,method:`query-cache-invalidate`";
+  const persistedAtomMarker = "codexLinuxAvatarOverlayWindow";
+  if (
+    currentSource.includes(legacyMarker) ||
+    currentSource.includes(persistedAtomMarker)
+  ) {
     return currentSource;
   }
 
   const original =
     "case`query-cache-invalidate`:{t.queryKey[0]===`plugins`&&Sr(this.getAppServerConnection(this.hostId));let n=this.getIpcClientForWebContents(e);n&&await n.sendBroadcast(`query-cache-invalidate`,{queryKey:t.queryKey});break}";
-  if (!currentSource.includes(original)) {
+  if (currentSource.includes(original)) {
+    const versionMatch = currentSource.match(
+      /version:([A-Za-z_$][\w$]*)\.fc\(`query-cache-invalidate`\)/,
+    );
+    if (versionMatch == null) {
+      console.warn(
+        "WARN: Could not find query cache invalidation protocol version - skipping Linux avatar settings sync patch",
+      );
+      return currentSource;
+    }
+
+    const protocol = versionMatch[1];
+    const replacement =
+      "case`query-cache-invalidate`:{t.queryKey[0]===`plugins`&&Sr(this.getAppServerConnection(this.hostId));let r=this.getIpcClientForWebContents(e);r&&await r.sendBroadcast(`query-cache-invalidate`,{queryKey:t.queryKey});process.platform===`linux`&&this.windowManager.sendMessageToAllRegisteredWindows({type:`ipc-broadcast`,method:`query-cache-invalidate`,sourceClientId:`desktop`,version:" +
+      protocol +
+      ".fc(`query-cache-invalidate`),params:{queryKey:t.queryKey}});break}";
+    recordStrategy("avatar-settings-sync", "legacy-query-cache");
+    return currentSource.replace(original, replacement);
+  }
+
+  const persistedAtomMethodRegex =
+    /broadcastPersistedAtomUpdate\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{let ([A-Za-z_$][\w$]*)=\3===void 0,([A-Za-z_$][\w$]*)=\{type:`persisted-atom-updated`,key:\2,value:\4\?null:\3,deleted:\4\};/g;
+  const persistedAtomMatches = [...currentSource.matchAll(persistedAtomMethodRegex)];
+  if (persistedAtomMatches.length !== 1) {
     console.warn(
-      "WARN: Could not find query cache invalidation handler - skipping Linux avatar settings sync patch",
+      "WARN: Could not find current persisted atom broadcaster - skipping Linux avatar settings sync patch",
     );
     return currentSource;
   }
 
-  const versionMatch = currentSource.match(
-    /version:([A-Za-z_$][\w$]*)\.fc\(`query-cache-invalidate`\)/,
-  );
-  if (versionMatch == null) {
-    console.warn(
-      "WARN: Could not find query cache invalidation protocol version - skipping Linux avatar settings sync patch",
-    );
-    return currentSource;
-  }
-
-  const protocol = versionMatch[1];
+  const match = persistedAtomMatches[0];
+  const [methodStart, , keyAlias, , , messageAlias] = match;
   const replacement =
-    "case`query-cache-invalidate`:{t.queryKey[0]===`plugins`&&Sr(this.getAppServerConnection(this.hostId));let r=this.getIpcClientForWebContents(e);r&&await r.sendBroadcast(`query-cache-invalidate`,{queryKey:t.queryKey});process.platform===`linux`&&this.windowManager.sendMessageToAllRegisteredWindows({type:`ipc-broadcast`,method:`query-cache-invalidate`,sourceClientId:`desktop`,version:" +
-    protocol +
-    ".fc(`query-cache-invalidate`),params:{queryKey:t.queryKey}});break}";
-  recordStrategy("avatar-settings-sync", "upstream");
-  return currentSource.replace(original, replacement);
+    methodStart +
+    `process.platform===\`linux\`&&(${keyAlias}===\`avatar-overlay-mascot-width-px\`||${keyAlias}===\`selected-avatar-id\`)&&(()=>{let codexLinuxAvatarOverlayWindow=this.avatarOverlayManager?.window;codexLinuxAvatarOverlayWindow!=null&&!codexLinuxAvatarOverlayWindow.isDestroyed()&&this.windowManager.sendMessageToWebContents(codexLinuxAvatarOverlayWindow.webContents,${messageAlias})})();`;
+  recordStrategy("avatar-settings-sync", "persisted-atom");
+  return (
+    currentSource.slice(0, match.index) +
+    replacement +
+    currentSource.slice(match.index + methodStart.length)
+  );
 }
 
 function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
