@@ -146,7 +146,7 @@ function applyLinuxQueryCacheInvalidationBroadcastPatch(currentSource) {
   const [methodStart, , keyAlias, , , messageAlias] = match;
   const replacement =
     methodStart +
-    `process.platform===\`linux\`&&(${keyAlias}===\`avatar-overlay-mascot-width-px\`||${keyAlias}===\`selected-avatar-id\`)&&(()=>{let codexLinuxAvatarOverlayWindow=this.avatarOverlayManager?.window;codexLinuxAvatarOverlayWindow!=null&&!codexLinuxAvatarOverlayWindow.isDestroyed()&&this.windowManager.sendMessageToWebContents(codexLinuxAvatarOverlayWindow.webContents,${messageAlias})})();`;
+    `process.platform===\`linux\`&&(${keyAlias}===\`avatar-overlay-mascot-width-px\`||${keyAlias}===\`selected-avatar-id\`)&&(()=>{for(let codexLinuxAvatarOverlayWindow of require(\`electron\`).BrowserWindow.getAllWindows())codexLinuxAvatarOverlayWindow.isDestroyed()||this.windowManager.windowAppearances?.get(codexLinuxAvatarOverlayWindow.id)!==\`avatarOverlay\`||this.windowManager.sendMessageToWindow(codexLinuxAvatarOverlayWindow,${messageAlias})})();`;
   recordStrategy("avatar-settings-sync", "persisted-atom");
   return (
     currentSource.slice(0, match.index) +

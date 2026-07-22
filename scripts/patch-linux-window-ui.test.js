@@ -3724,13 +3724,67 @@ test("syncs current persisted pet settings across renderer windows", () => {
 
   assert.match(
     patched,
-    /let r=n===void 0,i=\{type:`persisted-atom-updated`,key:t,value:r\?null:n,deleted:r\};process\.platform===`linux`&&\(t===`avatar-overlay-mascot-width-px`\|\|t===`selected-avatar-id`\)&&\(\(\)=>\{let codexLinuxAvatarOverlayWindow=this\.avatarOverlayManager\?\.window;/,
+    /let r=n===void 0,i=\{type:`persisted-atom-updated`,key:t,value:r\?null:n,deleted:r\};process\.platform===`linux`&&\(t===`avatar-overlay-mascot-width-px`\|\|t===`selected-avatar-id`\)&&\(\(\)=>\{for\(let codexLinuxAvatarOverlayWindow of require\(`electron`\)\.BrowserWindow\.getAllWindows\(\)\)/,
   );
   assert.match(
     patched,
-    /this\.windowManager\.sendMessageToWebContents\(codexLinuxAvatarOverlayWindow\.webContents,i\)/,
+    /this\.windowManager\.windowAppearances\?\.get\(codexLinuxAvatarOverlayWindow\.id\)!==`avatarOverlay`\|\|this\.windowManager\.sendMessageToWindow\(codexLinuxAvatarOverlayWindow,i\)/,
   );
   assert.doesNotMatch(patched, /persisted-atom-sync/);
+
+  const windows = [
+    { id: 1, isDestroyed: () => false },
+    { id: 2, isDestroyed: () => false },
+    { id: 3, isDestroyed: () => false },
+    { id: 4, isDestroyed: () => true },
+  ];
+  const sent = [];
+  const Handler = Function(
+    "require",
+    "process",
+    `${patched};return Handler;`,
+  )(
+    () => ({ BrowserWindow: { getAllWindows: () => windows } }),
+    { platform: "linux" },
+  );
+  const handler = new Handler();
+  handler.windowManager = {
+    windowAppearances: new Map([
+      [1, "avatarOverlay"],
+      [2, "avatarOverlay"],
+      [3, "primary"],
+      [4, "avatarOverlay"],
+    ]),
+    sendMessageToWindow: (window, message) => sent.push({ window, message }),
+    sendMessageToAllWindows: () => {},
+  };
+  handler.broadcastPersistedAtomUpdate(
+    {},
+    "avatar-overlay-mascot-width-px",
+    160,
+  );
+  assert.deepEqual(
+    sent.map(({ window, message }) => ({
+      windowId: window.id,
+      type: message.type,
+      key: message.key,
+      value: message.value,
+    })),
+    [
+      {
+        windowId: 1,
+        type: "persisted-atom-updated",
+        key: "avatar-overlay-mascot-width-px",
+        value: 160,
+      },
+      {
+        windowId: 2,
+        type: "persisted-atom-updated",
+        key: "avatar-overlay-mascot-width-px",
+        value: 160,
+      },
+    ],
+  );
 });
 
 test("keeps the avatar overlay core patch idempotent after pet overlay composition", () => {
