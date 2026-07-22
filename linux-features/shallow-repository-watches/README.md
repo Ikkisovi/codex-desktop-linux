@@ -46,3 +46,20 @@ Run its tests with:
 ```bash
 node --test linux-features/shallow-repository-watches/test.js
 ```
+
+## VS Code Codex extension
+
+The OpenAI Codex VS Code extension carries the same local `startFileWatch`
+implementation, but it runs in VS Code's extension host and is not changed by
+rebuilding Desktop. On Linux, inspect the newest installed extension and apply
+the same bounded-watch transform with:
+
+```bash
+node scripts/patch-vscode-codex-extension.js
+node scripts/patch-vscode-codex-extension.js --apply
+```
+
+The installer validates the extension identity and bundle shape, syntax-checks
+the transformed bundle, keeps one adjacent original-file backup, and writes a
+small patch report. A running extension host continues using its already-loaded
+bundle; the patch activates on the next normal extension-host start.
